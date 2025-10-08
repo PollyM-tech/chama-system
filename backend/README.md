@@ -6,3 +6,8 @@ flask db migrate -m " "
 flask db upgrade
 
 #using jwt tokens
+Create Authentication Routes
+JWT in Postman
+Access Token
+Use Token in Protected Routes
+Refresh Token (when access token expires)
