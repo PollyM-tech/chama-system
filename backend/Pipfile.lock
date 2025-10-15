@@ -1,11 +1,11 @@
 {
     "_meta": {
         "hash": {
-            "sha256": "f85b4cb32e4b7c84813a89db25df06564c4643858feaf0038ccd51a1efc2488f"
+            "sha256": "a581ba0ca01af3c275df7c7acda054169409e46a6fdd95641b5f82744a187e2d"
         },
         "pipfile-spec": 6,
         "requires": {
-            "python_version": "3.13"
+            "python_version": "3.12"
         },
         "sources": [
             {
@@ -141,12 +141,12 @@
         },
         "flask": {
             "hashes": [
-                "sha256:bf656c15c80190ed628ad08cdfd3aaa35beb087855e2f494910aa3774cc4fd87",
-                "sha256:ca1d8112ec8a6158cc29ea4858963350011b5c846a414cdb7a954aa9e967d03c"
+                "sha256:09c347a92aa7ff4a8e7f3206795f30d826654baf38b873d0744cd571ca609efc",
+                "sha256:f69fcd559dc907ed196ab9df0e48471709175e696d6e698dd4dbe940f96ce66b"
             ],
             "index": "pypi",
-            "markers": "python_version >= '3.9'",
-            "version": "==3.1.2"
+            "markers": "python_version >= '3.8'",
+            "version": "==2.3.3"
         },
         "flask-bcrypt": {
             "hashes": [
@@ -173,6 +173,15 @@
             "index": "pypi",
             "markers": "python_version >= '3.9' and python_version < '4'",
             "version": "==4.7.1"
+        },
+        "flask-mail": {
+            "hashes": [
+                "sha256:44083e7b02bbcce792209c06252f8569dd5a325a7aaa76afe7330422bd97881d",
+                "sha256:a451e490931bb3441d9b11ebab6812a16bfa81855792ae1bf9c1e1e22c4e51e7"
+            ],
+            "index": "pypi",
+            "markers": "python_version >= '3.8'",
+            "version": "==0.10.0"
         },
         "flask-migrate": {
             "hashes": [
@@ -389,11 +398,21 @@
         },
         "marshmallow": {
             "hashes": [
-                "sha256:72f14ef346f81269dbddee891bac547dda1501e9e08b6a809756ea3dbb7936a1",
-                "sha256:e1d860bd262737cb2d34e1541b84cb52c32c72c9474e3fe6f30f137ef8b0d97f"
+                "sha256:5d2371bbe42000f2b3fb5eaa065224df7d8f8597bc19a1bbfa5bfe7fba8da889",
+                "sha256:684939db93e80ad3561392f47be0230743131560a41c5110684c16e21ade0a5c"
             ],
+            "index": "pypi",
+            "markers": "python_version >= '3.8'",
+            "version": "==3.20.1"
+        },
+        "marshmallow-sqlalchemy": {
+            "hashes": [
+                "sha256:6410304bf98ec26ea35f3f9d3cee82e51fd093c434612add32a0bdcdb5668f7c",
+                "sha256:65aee301c4601e76a2fdb02764a65c18913afba2a3506a326c625d13ab405b40"
+            ],
+            "index": "pypi",
             "markers": "python_version >= '3.9'",
-            "version": "==4.0.1"
+            "version": "==1.4.2"
         },
         "packaging": {
             "hashes": [
