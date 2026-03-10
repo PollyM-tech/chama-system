@@ -1,0 +1,46 @@
+# Environment variables
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+pip-wheel-metadata/
+*.egg-info/
+.eggs/
+
+# Pipenv
+Pipfile.lock
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# Flask / SQLite databases
+instance/
+*.db
+*.sqlite3
+
+# Logs and caches
+*.log
+*.pot
+*.pyc
+.cache/
+.coverage
+.tox/
+dist/
+build/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Migrations
+migrations/__pycache__/
+migrations/versions/__pycache__/

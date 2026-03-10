@@ -1,0 +1,5 @@
+from .user_routes import register_user_routes
+from .chama_routes import register_chama_routes
+from .loan_routes import register_loan_routes
+from .contribution_routes import register_contribution_routes
+from .vote_routes import register_vote_routes
