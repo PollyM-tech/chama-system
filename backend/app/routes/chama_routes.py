@@ -1,12 +1,32 @@
+from flask import Blueprint
+from flask_restful import Api
 from Resources.Chama import (
-    ChamasResource,
+    ChamaCreateResource,
     ChamaDetailResource,
-    MembershipResource,
+    ChamaUpdateResource,
+    ChamaMembersResource,
+    ChamaInviteMemberResource,
+    ChamaPendingInvitesResource,
+    ChamaRevokeInviteResource,
+    ChamaAddExistingMemberResource,
+    ChamaMembershipRoleUpdateResource,
+    ChamaSuspendMembershipResource,
+    ChamaRemoveMembershipResource,
 )
 
+chama_bp = Blueprint("chama_bp", __name__)
+api = Api(chama_bp)
 
-def register_chama_routes(api):
-    """Register all chama related routes."""
-    api.add_resource(ChamasResource, "/api/v1/chamas")
-    api.add_resource(ChamaDetailResource, "/api/v1/chamas/<int:chama_id>")
-    api.add_resource(MembershipResource, "/api/v1/chamas/<int:chama_id>/members")
+api.add_resource(ChamaCreateResource, "/chamas")
+api.add_resource(ChamaDetailResource, "/chamas/<int:chama_id>")
+api.add_resource(ChamaUpdateResource, "/chamas/<int:chama_id>")
+api.add_resource(ChamaMembersResource, "/chamas/<int:chama_id>/members")
+
+api.add_resource(ChamaInviteMemberResource, "/chamas/<int:chama_id>/invite")
+api.add_resource(ChamaPendingInvitesResource, "/chamas/<int:chama_id>/invites")
+api.add_resource(ChamaRevokeInviteResource, "/chamas/<int:chama_id>/invites/<int:invite_id>/revoke")
+
+api.add_resource(ChamaAddExistingMemberResource, "/chamas/<int:chama_id>/memberships")
+api.add_resource(ChamaMembershipRoleUpdateResource, "/chamas/<int:chama_id>/memberships/<int:membership_id>/role")
+api.add_resource(ChamaSuspendMembershipResource, "/chamas/<int:chama_id>/memberships/<int:membership_id>/suspend")
+api.add_resource(ChamaRemoveMembershipResource, "/chamas/<int:chama_id>/memberships/<int:membership_id>/remove")

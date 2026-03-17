@@ -1,440 +1,545 @@
-import secrets
-import string
-from datetime import datetime, timedelta
-from flask import request, url_for, current_app
-from flask_restful import Resource, reqparse
-from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity, create_refresh_token
-from werkzeug.security import generate_password_hash, check_password_hash
-from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadSignature
-from models import db, User, Profile, PasswordResetToken, AuditLog
-from schemas import user_schema, users_schema, profile_schema
-from flask_mail import Message
-from marshmallow import ValidationError
-import re
-import logging
+from datetime import datetime
+from flask import request
+from flask_restful import Resource
+from flask_jwt_extended import jwt_required, get_jwt_identity
+from sqlalchemy import or_
 
-# Set up logging
-logger = logging.getLogger(__name__)
+from models import (
+    db,
+    User,
+    Membership,
+    Chama,
+    AuditLog,
+    AuditAction,
+    UserAccountStatus,
+    MembershipStatus,
+)
 
-class SignupResource(Resource):
-    parser = reqparse.RequestParser()
-    parser.add_argument("full_name", required=True, help="Full name is required")
-    parser.add_argument("email", required=True, help="Email is required")
-    parser.add_argument("password", required=True, help="Password is required")
-    parser.add_argument("phone", required=False)
-    parser.add_argument("remember_me", type=bool, default=False)
 
-    def post(self):
-        data = self.parser.parse_args()
+# =========================================================
+# HELPERS
+# =========================================================
 
-        # Validate email
-        if not re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', data["email"]):
-            return {"message": "Invalid email format"}, 400
+def get_current_user():
+    identity = get_jwt_identity()
+    if not identity:
+        return None
 
-        # Validate password
-        password_errors = self._validate_password(data["password"])
-        if password_errors:
-            return {"message": "Password does not meet requirements", "errors": password_errors}, 400
+    user = User.query.get(identity)
+    if not user:
+        return None
 
-        # Check if user exists
-        if User.query.filter_by(email=data["email"]).first():
-            return {"message": "Email address is already registered"}, 422
+    return user
 
-        # Hash password
-        hashed_password = generate_password_hash(data["password"])
 
-        # Generate username
-        username = data["email"].split("@")[0]
-        counter = 1
-        original_username = username
-        while User.query.filter_by(username=username).first():
-            username = f"{original_username}{counter}"
-            counter += 1
+def user_basic_dict(user):
+    return {
+        "id": user.id,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "full_name": user.full_name,
+        "username": user.username,
+        "email": user.email,
+        "phone_number": user.phone_number,
+        "email_verified": user.email_verified,
+        "phone_verified": user.phone_verified,
+        "status": user.status.value if user.status else None,
+        "is_deleted": user.is_deleted,
+        "is_deactivated": user.is_deactivated,
+        "created_at": user.created_at.isoformat() if user.created_at else None,
+        "updated_at": user.updated_at.isoformat() if user.updated_at else None,
+        "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None,
+    }
 
-        # Create user instance
-        user = User(
-            username=username,
-            email=data["email"],
-            password=hashed_password,
-            role="member"
+
+def membership_dict(membership):
+    return {
+        "membership_id": membership.id,
+        "chama_id": membership.chama_id,
+        "chama_name": membership.chama.name if membership.chama else None,
+        "chama_slug": membership.chama.slug if membership.chama else None,
+        "role": membership.role.value if membership.role else None,
+        "status": membership.status.value if membership.status else None,
+        "joined_at": membership.joined_at.isoformat() if membership.joined_at else None,
+        "left_at": membership.left_at.isoformat() if membership.left_at else None,
+        "created_at": membership.created_at.isoformat() if membership.created_at else None,
+    }
+
+
+def is_platform_admin(user):
+    """
+    Placeholder for admin backend access.
+    For now, replace this with your real platform admin logic.
+    Example later:
+    - separate PlatformAdmin table
+    - or User.is_staff boolean
+    """
+    return user and user.username in ["admin", "superadmin"]
+
+
+def audit_log(
+    action,
+    actor_user_id=None,
+    target_user_id=None,
+    chama_id=None,
+    description=None,
+    old_values=None,
+    new_values=None,
+):
+    try:
+        AuditLog.log(
+            action=action,
+            actor_user_id=actor_user_id,
+            target_user_id=target_user_id,
+            chama_id=chama_id,
+            description=description,
+            old_values=old_values,
+            new_values=new_values,
+            ip_address=request.remote_addr,
+            user_agent=request.headers.get("User-Agent"),
         )
-
-        try:
-            # Save user and profile
-            db.session.add(user)
-            db.session.flush()  # Get user.id
-
-            # Split full name
-            name_parts = data["full_name"].strip().split(" ", 1)
-            first_name = name_parts[0]
-            last_name = name_parts[1] if len(name_parts) > 1 else ""
-
-            profile = Profile(
-                user_id=user.id,
-                first_name=first_name,
-                last_name=last_name,
-                phone=data.get("phone")
-            )
-            db.session.add(profile)
-
-            # Create audit log
-            audit_log = AuditLog(
-                user_id=user.id,
-                action="user_registered",
-                resource_type="user",
-                resource_id=user.id,
-                details={"email": data["email"], "username": username}
-            )
-            db.session.add(audit_log)
-
-            db.session.commit()
-
-            # Send welcome email
-            try:
-                from app import mail  # Import your Flask-Mail instance
-                welcome_msg = Message(
-                    subject="Welcome to Smart Chama!",
-                    recipients=[user.email],
-                    body=f"Hello {first_name},\n\n"
-                         "Thank you for registering at Smart Chama! "
-                         "We're excited to have you on board.\n\n"
-                         "Best regards,\nSmart Chama Team"
-                )
-                mail.send(welcome_msg)
-                logger.info(f"Welcome email sent to {user.email}")
-            except Exception as e:
-                logger.error(f"Failed to send welcome email to {user.email}: {str(e)}")
-
-            # Create JWT tokens
-            expires_delta = timedelta(days=30) if data["remember_me"] else timedelta(hours=24)
-            access_token = create_access_token(identity=user.id, expires_delta=expires_delta)
-            refresh_token = create_refresh_token(identity=user.id)
-
-            logger.info(f"New user registered: {user.email} (ID: {user.id})")
-
-            return {
-                "message": "Account created successfully",
-                "user": user_schema.dump(user),
-                "access_token": access_token,
-                "refresh_token": refresh_token
-            }, 201
-
-        except Exception as e:
-            db.session.rollback()
-            logger.error(f"Error during user registration: {str(e)}")
-            return {"message": "An error occurred during registration. Please try again."}, 500
+    except Exception:
+        # avoid blocking main flow if audit fails
+        pass
 
 
-    def _validate_password(self, password):
-        """Validate password strength"""
-        errors = []
-        if len(password) < 8:
-            errors.append("Password must be at least 8 characters long")
-        if not re.search(r"[A-Z]", password):
-            errors.append("Password must contain at least one uppercase letter")
-        if not re.search(r"[a-z]", password):
-            errors.append("Password must contain at least one lowercase letter")
-        if not re.search(r"[0-9]", password):
-            errors.append("Password must contain at least one number")
-        if not re.search(r"[!@#$%^&*(),.?\":{}|<>]", password):
-            errors.append("Password must contain at least one special character")
-        return errors
+# =========================================================
+# RESOURCES
+# =========================================================
 
-class LoginResource(Resource):
-    parser = reqparse.RequestParser()
-    parser.add_argument("email", required=True, type=str, help="Email address is required")
-    parser.add_argument("password", required=True, type=str, help="Password is required")
-    parser.add_argument("remember_me", type=bool, default=False)
-
-    def post(self):
-        data = self.parser.parse_args()
-
-        # 1. Check if user with email is present
-        user = User.query.filter_by(email=data["email"]).first()
-
-        if user is None:
-            logger.warning(f"Failed login attempt for non-existent email: {data['email']}")
-            return {"message": "Incorrect email address or password"}, 401
-
-        # Check if user is active
-        if not user.is_active:
-            logger.warning(f"Login attempt for deactivated account: {user.email}")
-            return {"message": "Account is deactivated. Please contact administrator."}, 401
-
-        # 2. Verify password
-        if check_password_hash(user.password, data["password"]):
-            # Create tokens with remember_me consideration
-            expires_delta = timedelta(days=30) if data["remember_me"] else timedelta(hours=24)
-            access_token = create_access_token(
-                identity=user.id, 
-                expires_delta=expires_delta
-            )
-            refresh_token = create_refresh_token(identity=user.id)
-
-            # Update last login time (you might want to add this field to User model)
-            user.last_login = datetime.utcnow()
-            
-            # Create audit log
-            audit_log = AuditLog(
-                user_id=user.id,
-                action="user_logged_in",
-                resource_type="user",
-                resource_id=user.id
-            )
-            db.session.add(audit_log)
-            db.session.commit()
-
-            logger.info(f"User logged in: {user.email} (ID: {user.id})")
-
-            return {
-                "message": "Login successful",
-                "user": user_schema.dump(user),
-                "access_token": access_token,
-                "refresh_token": refresh_token
-            }, 200
-        else:
-            logger.warning(f"Failed login attempt for user: {user.email}")
-            return {"message": "Incorrect email or password"}, 401
-
-class RefreshTokenResource(Resource):
-    @jwt_required(refresh=True)
-    def post(self):
-        try:
-            current_user_id = get_jwt_identity()
-            user = User.query.get(current_user_id)
-            
-            if not user or not user.is_active:
-                return {"message": "Invalid refresh token"}, 401
-
-            access_token = create_access_token(identity=current_user_id)
-            
-            logger.info(f"Token refreshed for user ID: {current_user_id}")
-            
-            return {
-                "access_token": access_token
-            }, 200
-        except Exception as e:
-            logger.error(f"Token refresh error: {str(e)}")
-            return {"message": "Invalid refresh token"}, 401
-
-class UsersResource(Resource):
+class CurrentUserResource(Resource):
+    """
+    GET /me
+    Return currently logged in user profile
+    """
     @jwt_required()
     def get(self):
-        current_user_id = get_jwt_identity()
-        current_user = User.query.get(current_user_id)
-        
+        current_user = get_current_user()
         if not current_user:
-            return {"message": "User not found"}, 404
-            
-        # Only allow admins to see all users
-        if current_user.role not in ['chairperson', 'treasurer']:
-            return {"message": "Unauthorized - Admin access required"}, 403
-            
-        users = User.query.filter_by(is_active=True).all()
-        return users_schema.dump(users), 200
+            return {"message": "User not found."}, 404
 
-class UserProfileResource(Resource):
-    @jwt_required()
-    def get(self):
-        user_id = get_jwt_identity()
-        user = User.query.get(user_id)
-        
-        if not user:
-            return {"message": "User not found"}, 404
-            
-        profile_data = profile_schema.dump(user.profile) if user.profile else {}
-        
+        if current_user.is_deactivated:
+            return {"message": "This account has been deactivated."}, 403
+
         return {
-            "user": user_schema.dump(user),
-            "profile": profile_data
+            "message": "Current user retrieved successfully.",
+            "user": user_basic_dict(current_user)
         }, 200
 
+
+class UserProfileUpdateResource(Resource):
+    """
+    PUT /me
+    Update own platform profile
+    """
     @jwt_required()
     def put(self):
-        user_id = get_jwt_identity()
-        user = User.query.get(user_id)
-        
-        if not user:
-            return {"message": "User not found"}, 404
+        current_user = get_current_user()
+        if not current_user:
+            return {"message": "User not found."}, 404
 
-        try:
-            profile_data = profile_schema.load(request.get_json(), partial=True)
-        except ValidationError as err:
-            return {"errors": err.messages}, 400
+        if not current_user.is_active_account:
+            return {"message": "Inactive accounts cannot be updated."}, 403
 
-        # Update profile
-        if not user.profile:
-            profile = Profile(user_id=user.id, **profile_data)
-            db.session.add(profile)
-        else:
-            for key, value in profile_data.items():
-                setattr(user.profile, key, value)
+        data = request.get_json() or {}
 
-        # Create audit log
-        audit_log = AuditLog(
-            user_id=user_id,
-            action="profile_updated",
-            resource_type="profile",
-            resource_id=user.profile.id if user.profile else None
-        )
-        db.session.add(audit_log)
+        old_values = user_basic_dict(current_user)
+
+        username = data.get("username")
+        email = data.get("email")
+        phone_number = data.get("phone_number")
+        first_name = data.get("first_name")
+        last_name = data.get("last_name")
+
+        if username:
+            existing = User.query.filter(
+                User.username == username,
+                User.id != current_user.id
+            ).first()
+            if existing:
+                return {"message": "Username already in use."}, 400
+            current_user.username = username.strip()
+
+        if email:
+            existing = User.query.filter(
+                User.email == email,
+                User.id != current_user.id
+            ).first()
+            if existing:
+                return {"message": "Email already in use."}, 400
+            current_user.email = email.strip().lower()
+
+        if phone_number:
+            existing = User.query.filter(
+                User.phone_number == phone_number,
+                User.id != current_user.id
+            ).first()
+            if existing:
+                return {"message": "Phone number already in use."}, 400
+            current_user.phone_number = phone_number.strip()
+
+        if first_name is not None:
+            current_user.first_name = first_name.strip() if first_name else None
+
+        if last_name is not None:
+            current_user.last_name = last_name.strip() if last_name else None
+
         db.session.commit()
 
-        logger.info(f"Profile updated for user ID: {user_id}")
+        audit_log(
+            action=AuditAction.USER_UPDATED,
+            actor_user_id=current_user.id,
+            target_user_id=current_user.id,
+            description="User updated own profile.",
+            old_values=old_values,
+            new_values=user_basic_dict(current_user),
+        )
 
         return {
-            "message": "Profile updated successfully",
-            "profile": profile_schema.dump(user.profile)
+            "message": "Profile updated successfully.",
+            "user": user_basic_dict(current_user)
         }, 200
+
 
 class ChangePasswordResource(Resource):
+    """
+    PUT /me/change-password
+    Change own password
+    """
     @jwt_required()
     def put(self):
-        user_id = get_jwt_identity()
-        user = User.query.get(user_id)
-        if not user:
-            return {"message": "User not found"}, 404
+        current_user = get_current_user()
+        if not current_user:
+            return {"message": "User not found."}, 404
 
-        parser = reqparse.RequestParser()
-        parser.add_argument("current_password", required=True)
-        parser.add_argument("new_password", required=True)
-        data = parser.parse_args()
+        if not current_user.is_active_account:
+            return {"message": "Inactive accounts cannot change password."}, 403
 
-        if not check_password_hash(user.password, data["current_password"]):
-            return {"message": "Current password is incorrect"}, 401
+        data = request.get_json() or {}
 
-        errors = validate_password(data["new_password"])
-        if errors:
-            return {"message": "New password does not meet requirements", "errors": errors}, 400
+        current_password = data.get("current_password")
+        new_password = data.get("new_password")
+        confirm_password = data.get("confirm_password")
 
-        if check_password_hash(user.password, data["new_password"]):
-            return {"message": "New password cannot be the same as current password"}, 400
+        if not current_password or not new_password or not confirm_password:
+            return {
+                "message": "current_password, new_password, and confirm_password are required."
+            }, 400
 
-        user.set_password(data["new_password"])
-        db.session.add(AuditLog(user_id=user_id, action="password_changed", resource_type="user", resource_id=user.id))
-        db.session.commit()
-        return {"message": "Password updated successfully"}, 200
+        if not current_user.check_password(current_password):
+            return {"message": "Current password is incorrect."}, 400
 
-class ForgotPasswordResource(Resource):
-    parser = reqparse.RequestParser()
-    parser.add_argument("email", required=True)
+        if new_password != confirm_password:
+            return {"message": "New password and confirm password do not match."}, 400
 
-    def post(self):
-        data = self.parser.parse_args()
-        user = User.query.filter_by(email=data["email"], is_active=True).first()
-        if user:
-            try:
-                token = ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(32))
-                PasswordResetToken.query.filter_by(user_id=user.id).delete()
-                reset_record = PasswordResetToken(user_id=user.id, token=token, expires_at=datetime.utcnow() + timedelta(hours=1))
-                db.session.add(reset_record)
-                db.session.add(AuditLog(user_id=user.id, action="password_reset_requested", resource_type="user", resource_id=user.id))
-                db.session.commit()
+        if len(new_password) < 8:
+            return {"message": "Password must be at least 8 characters long."}, 400
 
-                # Send email
-                reset_link = f"{current_app.config.get('FRONTEND_URL','http://localhost:5173')}/reset-password?token={token}"
-                try:
-                    msg = Message(subject="Reset Your Password", recipients=[user.email],
-                                  body=f"Click here to reset your password: {reset_link}")
-                    current_app.mail.send(msg)
-                except Exception as e:
-                    logger.error(f"Error sending password reset email: {str(e)}")
-            except Exception as e:
-                db.session.rollback()
-                logger.error(f"Error generating reset token for {user.email}: {str(e)}")
-        return {"message": "You will receive a password reset link shortly."}, 200
-
-class ResetPasswordResource(Resource):
-    parser = reqparse.RequestParser()
-    parser.add_argument("token", required=True)
-    parser.add_argument("new_password", required=True)
-
-    def post(self):
-        data = self.parser.parse_args()
-        reset_record = PasswordResetToken.query.filter_by(token=data["token"], used=False).first()
-        if not reset_record or reset_record.expires_at < datetime.utcnow():
-            return {"message": "Invalid or expired reset token"}, 400
-
-        user = User.query.get(reset_record.user_id)
-        if not user or not user.is_active:
-            return {"message": "Invalid reset token"}, 400
-
-        errors = validate_password(data["new_password"])
-        if errors:
-            return {"message": "New password does not meet requirements", "errors": errors}, 400
-
-        user.set_password(data["new_password"])
-        reset_record.used = True
-        reset_record.used_at = datetime.utcnow()
-        db.session.add(AuditLog(user_id=user.id, action="password_reset_completed", resource_type="user", resource_id=user.id))
+        current_user.set_password(new_password)
         db.session.commit()
 
-        return {"message": "Password reset successfully"}, 200
+        audit_log(
+            action=AuditAction.USER_UPDATED,
+            actor_user_id=current_user.id,
+            target_user_id=current_user.id,
+            description="User changed password."
+        )
 
-class UserDetailResource(Resource):
+        return {"message": "Password changed successfully."}, 200
+
+
+class MyChamasResource(Resource):
+    """
+    GET /my-chamas
+    Return all ACTIVE chamas for logged-in user
+    """
     @jwt_required()
-    def get(self, user_id):
-        current_user_id = get_jwt_identity()
-        current_user = User.query.get(current_user_id)
-        
-        # Users can view their own profile, admins can view any profile
-        if current_user_id != user_id and current_user.role not in ['chairperson', 'treasurer']:
-            return {"message": "Unauthorized"}, 403
+    def get(self):
+        current_user = get_current_user()
+        if not current_user:
+            return {"message": "User not found."}, 404
 
-        user = User.query.get(user_id)
-        if not user:
-            return {"message": "User not found"}, 404
+        if not current_user.is_active_account:
+            return {"message": "Inactive account cannot access chamas."}, 403
 
-        profile_data = profile_schema.dump(user.profile) if user.profile else {}
-        
+        memberships = (
+            Membership.query
+            .join(Chama, Membership.chama_id == Chama.id)
+            .filter(
+                Membership.user_id == current_user.id,
+                Membership.status == MembershipStatus.ACTIVE
+            )
+            .order_by(Chama.name.asc())
+            .all()
+        )
+
+        data = []
+        for membership in memberships:
+            data.append({
+                "membership_id": membership.id,
+                "role": membership.role.value if membership.role else None,
+                "membership_status": membership.status.value if membership.status else None,
+                "joined_at": membership.joined_at.isoformat() if membership.joined_at else None,
+                "chama": {
+                    "id": membership.chama.id,
+                    "name": membership.chama.name,
+                    "slug": membership.chama.slug,
+                    "status": membership.chama.status.value if membership.chama.status else None,
+                    "currency": membership.chama.currency,
+                    "contribution_frequency": membership.chama.contribution_frequency,
+                    "base_contribution_amount": float(membership.chama.base_contribution_amount) if membership.chama.base_contribution_amount is not None else None,
+                }
+            })
+
         return {
-            "user": user_schema.dump(user),
-            "profile": profile_data
+            "message": "My chamas retrieved successfully.",
+            "count": len(data),
+            "chamas": data
         }, 200
 
+
+class UserMembershipsResource(Resource):
+    """
+    GET /users/<int:user_id>/memberships
+
+    Rules:
+    - a user can see their own memberships
+    - platform admin can see any user's memberships
+    """
+    @jwt_required()
+    def get(self, user_id):
+        current_user = get_current_user()
+        if not current_user:
+            return {"message": "User not found."}, 404
+
+        target_user = User.query.get(user_id)
+        if not target_user:
+            return {"message": "Target user not found."}, 404
+
+        if current_user.id != target_user.id and not is_platform_admin(current_user):
+            return {"message": "You are not allowed to view this user's memberships."}, 403
+
+        memberships = (
+            Membership.query
+            .join(Chama, Membership.chama_id == Chama.id)
+            .filter(Membership.user_id == target_user.id)
+            .order_by(Membership.created_at.desc())
+            .all()
+        )
+
+        return {
+            "message": "User memberships retrieved successfully.",
+            "user": user_basic_dict(target_user),
+            "count": len(memberships),
+            "memberships": [membership_dict(m) for m in memberships]
+        }, 200
+
+
+class UserDetailResource(Resource):
+    """
+    GET /users/<int:user_id>
+    Platform user detail
+    """
+    @jwt_required()
+    def get(self, user_id):
+        current_user = get_current_user()
+        if not current_user:
+            return {"message": "User not found."}, 404
+
+        target_user = User.query.get(user_id)
+        if not target_user:
+            return {"message": "Target user not found."}, 404
+
+        if current_user.id != target_user.id and not is_platform_admin(current_user):
+            return {"message": "You are not allowed to view this user."}, 403
+
+        return {
+            "message": "User retrieved successfully.",
+            "user": user_basic_dict(target_user)
+        }, 200
+
+
+class UserListResource(Resource):
+    """
+    GET /users
+    Platform admin backend only
+    Supports search and status filtering
+    """
+    @jwt_required()
+    def get(self):
+        current_user = get_current_user()
+        if not current_user:
+            return {"message": "User not found."}, 404
+
+        if not is_platform_admin(current_user):
+            return {"message": "Only platform admin can view all users."}, 403
+
+        search = request.args.get("search", "").strip()
+        status = request.args.get("status", "").strip().lower()
+
+        query = User.query
+
+        if search:
+            query = query.filter(
+                or_(
+                    User.first_name.ilike(f"%{search}%"),
+                    User.last_name.ilike(f"%{search}%"),
+                    User.username.ilike(f"%{search}%"),
+                    User.email.ilike(f"%{search}%"),
+                    User.phone_number.ilike(f"%{search}%"),
+                )
+            )
+
+        if status:
+            if status == "active":
+                query = query.filter(User.status == UserAccountStatus.ACTIVE)
+            elif status == "deleted":
+                query = query.filter(User.status == UserAccountStatus.DELETED)
+            elif status == "deactivated":
+                query = query.filter(User.status == UserAccountStatus.DEACTIVATED)
+
+        users = query.order_by(User.created_at.desc()).all()
+
+        return {
+            "message": "Users retrieved successfully.",
+            "count": len(users),
+            "users": [user_basic_dict(user) for user in users]
+        }, 200
+
+
+class SoftDeleteUserResource(Resource):
+    """
+    DELETE /users/<int:user_id>/soft-delete
+
+    Recoverable delete for admin backend
+    """
     @jwt_required()
     def delete(self, user_id):
-        current_user_id = get_jwt_identity()
-        current_user = User.query.get(current_user_id)
-        
-        # Only admins or the user themselves can deactivate accounts
-        if current_user_id != user_id and current_user.role not in ['chairperson', 'treasurer']:
-            return {"message": "Unauthorized"}, 403
+        current_user = get_current_user()
+        if not current_user:
+            return {"message": "User not found."}, 404
 
-        user = User.query.get(user_id)
-        if not user:
-            return {"message": "User not found"}, 404
+        if not is_platform_admin(current_user):
+            return {"message": "Only platform admin can soft delete users."}, 403
 
-        # Prevent self-deactivation for admins
-        if current_user_id == user_id and current_user.role in ['chairperson', 'treasurer']:
-            # Check if there are other admins in the user's chamas
-            admin_count = self._get_admin_count(user_id)
-            if admin_count <= 1:
-                return {"message": "You cannot deactivate account. You are the only admin in one or more chamas."}, 400
+        target_user = User.query.get(user_id)
+        if not target_user:
+            return {"message": "Target user not found."}, 404
 
-        # Soft delete by setting is_active to False
-        user.is_active = False
-        
-        # Create audit log
-        audit_log = AuditLog(
-            user_id=current_user_id,
-            action="user_deactivated",
-            resource_type="user",
-            resource_id=user_id,
-            details={"deactivated_by": current_user_id}
-        )
-        db.session.add(audit_log)
+        if target_user.is_deactivated:
+            return {"message": "Deactivated user cannot be soft deleted."}, 400
+
+        if target_user.is_deleted:
+            return {"message": "User is already soft deleted."}, 400
+
+        data = request.get_json(silent=True) or {}
+        reason = data.get("reason")
+
+        old_values = user_basic_dict(target_user)
+
+        target_user.soft_delete(by_user_id=current_user.id, reason=reason)
         db.session.commit()
 
-        logger.info(f"User account deactivated: {user.email} (ID: {user_id}) by user ID: {current_user_id}")
+        audit_log(
+            action=AuditAction.USER_SOFT_DELETED,
+            actor_user_id=current_user.id,
+            target_user_id=target_user.id,
+            description="Platform admin soft deleted user.",
+            old_values=old_values,
+            new_values=user_basic_dict(target_user),
+        )
 
-        return {"message": "User account deactivated successfully"}, 200
+        return {
+            "message": "User soft deleted successfully.",
+            "user": user_basic_dict(target_user)
+        }, 200
 
-    def _get_admin_count(self, user_id):
-        """Count how many admin roles the user has across chamas"""
-        from models import Membership
-        admin_memberships = Membership.query.filter_by(
-            user_id=user_id,
-            role__in=['chairperson', 'treasurer']
-        ).count()
-        return admin_memberships
+
+class RestoreUserResource(Resource):
+    """
+    PATCH /users/<int:user_id>/restore
+
+    Restore soft deleted user
+    """
+    @jwt_required()
+    def patch(self, user_id):
+        current_user = get_current_user()
+        if not current_user:
+            return {"message": "User not found."}, 404
+
+        if not is_platform_admin(current_user):
+            return {"message": "Only platform admin can restore users."}, 403
+
+        target_user = User.query.get(user_id)
+        if not target_user:
+            return {"message": "Target user not found."}, 404
+
+        if target_user.is_deactivated:
+            return {"message": "Deactivated users cannot be restored."}, 400
+
+        if not target_user.is_deleted:
+            return {"message": "User is not soft deleted."}, 400
+
+        old_values = user_basic_dict(target_user)
+
+        target_user.restore()
+        db.session.commit()
+
+        audit_log(
+            action=AuditAction.USER_RESTORED,
+            actor_user_id=current_user.id,
+            target_user_id=target_user.id,
+            description="Platform admin restored user.",
+            old_values=old_values,
+            new_values=user_basic_dict(target_user),
+        )
+
+        return {
+            "message": "User restored successfully.",
+            "user": user_basic_dict(target_user)
+        }, 200
+
+
+class DeactivateUserResource(Resource):
+    """
+    PATCH /users/<int:user_id>/deactivate
+
+    Final irreversible shutdown
+    """
+    @jwt_required()
+    def patch(self, user_id):
+        current_user = get_current_user()
+        if not current_user:
+            return {"message": "User not found."}, 404
+
+        if not is_platform_admin(current_user):
+            return {"message": "Only platform admin can deactivate users."}, 403
+
+        target_user = User.query.get(user_id)
+        if not target_user:
+            return {"message": "Target user not found."}, 404
+
+        if target_user.is_deactivated:
+            return {"message": "User is already deactivated."}, 400
+
+        data = request.get_json(silent=True) or {}
+        reason = data.get("reason")
+
+        old_values = user_basic_dict(target_user)
+
+        target_user.deactivate(by_user_id=current_user.id, reason=reason)
+        db.session.commit()
+
+        audit_log(
+            action=AuditAction.USER_DEACTIVATED,
+            actor_user_id=current_user.id,
+            target_user_id=target_user.id,
+            description="Platform admin permanently deactivated user.",
+            old_values=old_values,
+            new_values=user_basic_dict(target_user),
+        )
+
+        return {
+            "message": "User permanently deactivated successfully.",
+            "user": user_basic_dict(target_user)
+        }, 200

@@ -1,25 +1,29 @@
+from flask import Blueprint
+from flask_restful import Api
 from Resources.User import (
-    SignupResource,
-    LoginResource,
-    UsersResource,
-    UserProfileResource,
+    CurrentUserResource,
+    UserProfileUpdateResource,
     ChangePasswordResource,
-    ForgotPasswordResource,
-    ResetPasswordResource,
-    RefreshTokenResource,
+    MyChamasResource,
+    UserMembershipsResource,
     UserDetailResource,
+    UserListResource,
+    SoftDeleteUserResource,
+    RestoreUserResource,
+    DeactivateUserResource,
 )
 
+user_bp = Blueprint("user_bp", __name__)
+api = Api(user_bp)
 
-def register_user_routes(api):
-    """Register all user/auth related routes."""
-    api.add_resource(SignupResource, "/api/v1/auth/signup")
-    api.add_resource(LoginResource, "/api/v1/auth/login")
-    api.add_resource(RefreshTokenResource, "/api/v1/auth/refresh")
-    api.add_resource(ChangePasswordResource, "/api/v1/auth/change-password")
-    api.add_resource(ForgotPasswordResource, "/api/v1/auth/forgot-password")
-    api.add_resource(ResetPasswordResource, "/api/v1/auth/reset-password")
+api.add_resource(CurrentUserResource, "/me")
+api.add_resource(UserProfileUpdateResource, "/me/update")
+api.add_resource(ChangePasswordResource, "/me/change-password")
+api.add_resource(MyChamasResource, "/my-chamas")
 
-    api.add_resource(UsersResource, "/api/v1/users")
-    api.add_resource(UserProfileResource, "/api/v1/users/profile")
-    api.add_resource(UserDetailResource, "/api/v1/users/<int:user_id>")
+api.add_resource(UserListResource, "/users")
+api.add_resource(UserDetailResource, "/users/<int:user_id>")
+api.add_resource(UserMembershipsResource, "/users/<int:user_id>/memberships")
+api.add_resource(SoftDeleteUserResource, "/users/<int:user_id>/soft-delete")
+api.add_resource(RestoreUserResource, "/users/<int:user_id>/restore")
+api.add_resource(DeactivateUserResource, "/users/<int:user_id>/deactivate")
