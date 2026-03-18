@@ -1,13 +1,9 @@
 from datetime import datetime, timedelta
 import enum
 import secrets
-
-from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import UniqueConstraint, CheckConstraint, Index
+from sqlalchemy import UniqueConstraint, Index
 from werkzeug.security import generate_password_hash, check_password_hash
-
-
-db = SQLAlchemy()
+from app.extensions import db
 
 
 # =========================================================
@@ -16,8 +12,8 @@ db = SQLAlchemy()
 
 class UserAccountStatus(enum.Enum):
     ACTIVE = "active"
-    DELETED = "deleted"          # soft delete / recoverable
-    DEACTIVATED = "deactivated"  # irreversible final shutdown
+    DELETED = "deleted"
+    DEACTIVATED = "deactivated"
 
 
 class MembershipRole(enum.Enum):
@@ -89,12 +85,21 @@ class AuditAction(enum.Enum):
     INVITE_REVOKED = "invite_revoked"
 
     CONTRIBUTION_RECORDED = "contribution_recorded"
+    CONTRIBUTION_UPDATED = "contribution_updated"
+    CONTRIBUTION_DELETED = "contribution_deleted"
+
     LOAN_APPLIED = "loan_applied"
     LOAN_APPROVED = "loan_approved"
     LOAN_REJECTED = "loan_rejected"
+    LOAN_DISBURSED = "loan_disbursed"
+    LOAN_UPDATED = "loan_updated"
+    LOAN_DELETED = "loan_deleted"
     LOAN_REPAYMENT_RECORDED = "loan_repayment_recorded"
 
     POLL_CREATED = "poll_created"
+    POLL_UPDATED = "poll_updated"
+    POLL_DELETED = "poll_deleted"
+
     VOTE_CAST = "vote_cast"
 
 
@@ -108,22 +113,16 @@ class TimestampMixin:
         db.DateTime,
         default=datetime.utcnow,
         onupdate=datetime.utcnow,
-        nullable=False
+        nullable=False,
     )
 
 
 class UserLifecycleMixin:
-    """
-    User account lifecycle:
-    - ACTIVE: normal access
-    - DELETED: recoverable soft delete
-    - DEACTIVATED: irreversible final shutdown
-    """
     status = db.Column(
         db.Enum(UserAccountStatus),
         default=UserAccountStatus.ACTIVE,
         nullable=False,
-        index=True
+        index=True,
     )
 
     is_deleted = db.Column(db.Boolean, default=False, nullable=False)
@@ -157,16 +156,12 @@ class UserLifecycleMixin:
         self.delete_reason = None
 
     def deactivate(self, by_user_id=None, reason=None):
-        """
-        Final irreversible shutdown.
-        """
         self.status = UserAccountStatus.DEACTIVATED
         self.is_deactivated = True
         self.deactivated_at = datetime.utcnow()
         self.deactivated_by_user_id = by_user_id
         self.deactivation_reason = reason
 
-        # Optional: also mark as deleted for convenience
         self.is_deleted = True
         if not self.deleted_at:
             self.deleted_at = datetime.utcnow()
@@ -204,38 +199,82 @@ class User(db.Model, TimestampMixin, UserLifecycleMixin):
 
     last_login_at = db.Column(db.DateTime, nullable=True)
 
-    # Relationships
     memberships = db.relationship(
         "Membership",
         back_populates="user",
         lazy=True,
         cascade="all, delete-orphan",
-        foreign_keys="Membership.user_id"
+        foreign_keys="Membership.user_id",
     )
 
     invites_received = db.relationship(
         "ChamaInvite",
         back_populates="invited_user",
         lazy=True,
-        foreign_keys="ChamaInvite.invited_user_id"
+        foreign_keys="ChamaInvite.invited_user_id",
     )
 
-    contributions = db.relationship("Contribution", back_populates="user", lazy=True)
-    loans = db.relationship("Loan", back_populates="borrower", lazy=True)
-    votes = db.relationship("Vote", back_populates="user", lazy=True)
+    contributions = db.relationship(
+        "Contribution",
+        back_populates="user",
+        lazy=True,
+        foreign_keys="Contribution.user_id",
+    )
+
+    recorded_contributions = db.relationship(
+        "Contribution",
+        back_populates="recorded_by",
+        lazy=True,
+        foreign_keys="Contribution.recorded_by_user_id",
+    )
+
+    loans = db.relationship(
+        "Loan",
+        back_populates="borrower",
+        lazy=True,
+        foreign_keys="Loan.borrower_user_id",
+    )
+
+    approved_loans = db.relationship(
+        "Loan",
+        back_populates="approved_by",
+        lazy=True,
+        foreign_keys="Loan.approved_by_user_id",
+    )
+
+    rejected_loans = db.relationship(
+        "Loan",
+        back_populates="rejected_by",
+        lazy=True,
+        foreign_keys="Loan.rejected_by_user_id",
+    )
+
+    recorded_repayments = db.relationship(
+        "LoanRepayment",
+        back_populates="recorded_by",
+        lazy=True,
+        foreign_keys="LoanRepayment.recorded_by_user_id",
+    )
+
+    votes = db.relationship(
+        "Vote",
+        back_populates="user",
+        lazy=True,
+        foreign_keys="Vote.user_id",
+    )
 
     audit_logs_actor = db.relationship(
         "AuditLog",
         foreign_keys="AuditLog.actor_user_id",
         back_populates="actor",
-        lazy=True
+        lazy=True,
     )
 
     audit_logs_target_user = db.relationship(
         "AuditLog",
         foreign_keys="AuditLog.target_user_id",
         back_populates="target_user",
-        lazy=True
+        lazy=True,
     )
 
     def set_password(self, raw_password):
@@ -253,13 +292,13 @@ class User(db.Model, TimestampMixin, UserLifecycleMixin):
         return Membership.query.filter_by(
             user_id=self.id,
             chama_id=chama_id,
-            status=MembershipStatus.ACTIVE
+            status=MembershipStatus.ACTIVE,
         ).first()
 
     def my_chamas_query(self):
         return Chama.query.join(Membership).filter(
             Membership.user_id == self.id,
-            Membership.status == MembershipStatus.ACTIVE
+            Membership.status == MembershipStatus.ACTIVE,
         )
 
     def can_access_chama(self, chama_id):
@@ -275,17 +314,13 @@ class User(db.Model, TimestampMixin, UserLifecycleMixin):
         return membership.role in roles
 
     def can_manage_onboarding(self, chama_id):
-        """
-        Only admin, treasurer, secretary can onboard/invite.
-        Chairperson does not get exclusive full control.
-        """
         return self.has_any_role(
             chama_id,
             {
                 MembershipRole.ADMIN,
                 MembershipRole.TREASURER,
                 MembershipRole.SECRETARY,
-            }
+            },
         )
 
     def to_dict_basic(self):
@@ -322,11 +357,11 @@ class Chama(db.Model, TimestampMixin):
         db.Enum(ChamaStatus),
         default=ChamaStatus.ACTIVE,
         nullable=False,
-        index=True
+        index=True,
     )
 
     currency = db.Column(db.String(10), default="KES", nullable=False)
-    contribution_frequency = db.Column(db.String(50), nullable=True)  # weekly / monthly
+    contribution_frequency = db.Column(db.String(50), nullable=True)
     base_contribution_amount = db.Column(db.Numeric(14, 2), nullable=True)
 
     created_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
@@ -335,24 +370,43 @@ class Chama(db.Model, TimestampMixin):
         "Membership",
         back_populates="chama",
         lazy=True,
-        cascade="all, delete-orphan"
+        cascade="all, delete-orphan",
+        foreign_keys="Membership.chama_id",
     )
 
     invites = db.relationship(
         "ChamaInvite",
         back_populates="chama",
         lazy=True,
-        cascade="all, delete-orphan"
+        cascade="all, delete-orphan",
+        foreign_keys="ChamaInvite.chama_id",
     )
 
-    contributions = db.relationship("Contribution", back_populates="chama", lazy=True)
-    loans = db.relationship("Loan", back_populates="chama", lazy=True)
-    polls = db.relationship("Poll", back_populates="chama", lazy=True)
+    contributions = db.relationship(
+        "Contribution",
+        back_populates="chama",
+        lazy=True,
+        foreign_keys="Contribution.chama_id",
+    )
+
+    loans = db.relationship(
+        "Loan",
+        back_populates="chama",
+        lazy=True,
+        foreign_keys="Loan.chama_id",
+    )
+
+    polls = db.relationship(
+        "Poll",
+        back_populates="chama",
+        lazy=True,
+        foreign_keys="Poll.chama_id",
+    )
 
     def active_memberships_query(self):
         return Membership.query.filter_by(
             chama_id=self.id,
-            status=MembershipStatus.ACTIVE
+            status=MembershipStatus.ACTIVE,
         )
 
     def has_member(self, user_id):
@@ -361,7 +415,7 @@ class Chama(db.Model, TimestampMixin):
     def user_membership(self, user_id):
         return Membership.query.filter_by(
             chama_id=self.id,
-            user_id=user_id
+            user_id=user_id,
         ).first()
 
     def user_can_access(self, user):
@@ -393,14 +447,14 @@ class Membership(db.Model, TimestampMixin):
         db.Enum(MembershipRole),
         default=MembershipRole.MEMBER,
         nullable=False,
-        index=True
+        index=True,
     )
 
     status = db.Column(
         db.Enum(MembershipStatus),
         default=MembershipStatus.PENDING,
         nullable=False,
-        index=True
+        index=True,
     )
 
     joined_at = db.Column(db.DateTime, nullable=True)
@@ -414,9 +468,14 @@ class Membership(db.Model, TimestampMixin):
     user = db.relationship(
         "User",
         back_populates="memberships",
-        foreign_keys=[user_id]
+        foreign_keys=[user_id],
     )
-    chama = db.relationship("Chama", back_populates="memberships")
+
+    chama = db.relationship(
+        "Chama",
+        back_populates="memberships",
+        foreign_keys=[chama_id],
+    )
 
     inviter = db.relationship("User", foreign_keys=[invited_by_user_id])
     approver = db.relationship("User", foreign_keys=[approved_by_user_id])
@@ -489,9 +548,6 @@ class Membership(db.Model, TimestampMixin):
 
 class ChamaInvite(db.Model, TimestampMixin):
     __tablename__ = "chama_invites"
-    __table_args__ = (
-        UniqueConstraint("chama_id", "email", "status", name="uq_pending_invite_per_email_chama"),
-    )
 
     id = db.Column(db.Integer, primary_key=True)
 
@@ -504,14 +560,14 @@ class ChamaInvite(db.Model, TimestampMixin):
     role_to_assign = db.Column(
         db.Enum(MembershipRole),
         default=MembershipRole.MEMBER,
-        nullable=False
+        nullable=False,
     )
 
     status = db.Column(
         db.Enum(InviteStatus),
         default=InviteStatus.PENDING,
         nullable=False,
-        index=True
+        index=True,
     )
 
     token = db.Column(db.String(128), unique=True, nullable=False, index=True)
@@ -521,9 +577,23 @@ class ChamaInvite(db.Model, TimestampMixin):
     accepted_at = db.Column(db.DateTime, nullable=True)
     revoked_at = db.Column(db.DateTime, nullable=True)
 
-    chama = db.relationship("Chama", back_populates="invites")
-    invited_user = db.relationship("User", back_populates="invites_received", foreign_keys=[invited_user_id])
+    chama = db.relationship(
+        "Chama",
+        back_populates="invites",
+        foreign_keys=[chama_id],
+    )
+
+    invited_user = db.relationship(
+        "User",
+        back_populates="invites_received",
+        foreign_keys=[invited_user_id],
+    )
+
     invited_by = db.relationship("User", foreign_keys=[invited_by_user_id])
+
+    __table_args__ = (
+        UniqueConstraint("chama_id", "email", "status", name="uq_pending_invite_per_email_chama"),
+    )
 
     @staticmethod
     def generate_token():
@@ -572,13 +642,27 @@ class Contribution(db.Model, TimestampMixin):
     contribution_date = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
     recorded_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
-    payment_method = db.Column(db.String(50), nullable=True)  # mpesa, bank, cash
+    payment_method = db.Column(db.String(50), nullable=True)
     reference_code = db.Column(db.String(100), nullable=True, index=True)
     notes = db.Column(db.Text, nullable=True)
 
-    chama = db.relationship("Chama", back_populates="contributions")
-    user = db.relationship("User", back_populates="contributions", foreign_keys=[user_id])
-    recorded_by = db.relationship("User", foreign_keys=[recorded_by_user_id])
+    chama = db.relationship(
+        "Chama",
+        back_populates="contributions",
+        foreign_keys=[chama_id],
+    )
+
+    user = db.relationship(
+        "User",
+        back_populates="contributions",
+        foreign_keys=[user_id],
+    )
+
+    recorded_by = db.relationship(
+        "User",
+        back_populates="recorded_contributions",
+        foreign_keys=[recorded_by_user_id],
+    )
 
     def __repr__(self):
         return f"<Contribution {self.id} user={self.user_id} amount={self.amount}>"
@@ -605,7 +689,7 @@ class Loan(db.Model, TimestampMixin):
         db.Enum(LoanStatus),
         default=LoanStatus.PENDING,
         nullable=False,
-        index=True
+        index=True,
     )
 
     applied_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
@@ -617,16 +701,36 @@ class Loan(db.Model, TimestampMixin):
     rejected_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
     rejection_reason = db.Column(db.Text, nullable=True)
 
-    chama = db.relationship("Chama", back_populates="loans")
-    borrower = db.relationship("User", back_populates="loans", foreign_keys=[borrower_user_id])
-    approved_by = db.relationship("User", foreign_keys=[approved_by_user_id])
-    rejected_by = db.relationship("User", foreign_keys=[rejected_by_user_id])
+    chama = db.relationship(
+        "Chama",
+        back_populates="loans",
+        foreign_keys=[chama_id],
+    )
+
+    borrower = db.relationship(
+        "User",
+        back_populates="loans",
+        foreign_keys=[borrower_user_id],
+    )
+
+    approved_by = db.relationship(
+        "User",
+        back_populates="approved_loans",
+        foreign_keys=[approved_by_user_id],
+    )
+
+    rejected_by = db.relationship(
+        "User",
+        back_populates="rejected_loans",
+        foreign_keys=[rejected_by_user_id],
+    )
 
     repayments = db.relationship(
         "LoanRepayment",
         back_populates="loan",
         lazy=True,
-        cascade="all, delete-orphan"
+        cascade="all, delete-orphan",
+        foreign_keys="LoanRepayment.loan_id",
     )
 
     def calculate_total_due(self):
@@ -675,8 +779,17 @@ class LoanRepayment(db.Model, TimestampMixin):
     reference_code = db.Column(db.String(100), nullable=True, index=True)
     notes = db.Column(db.Text, nullable=True)
 
-    loan = db.relationship("Loan", back_populates="repayments")
-    recorded_by = db.relationship("User", foreign_keys=[recorded_by_user_id])
+    loan = db.relationship(
+        "Loan",
+        back_populates="repayments",
+        foreign_keys=[loan_id],
+    )
+
+    recorded_by = db.relationship(
+        "User",
+        back_populates="recorded_repayments",
+        foreign_keys=[recorded_by_user_id],
+    )
 
     def __repr__(self):
         return f"<LoanRepayment {self.id} loan={self.loan_id} amount={self.amount}>"
@@ -699,28 +812,35 @@ class Poll(db.Model, TimestampMixin):
         db.Enum(PollStatus),
         default=PollStatus.DRAFT,
         nullable=False,
-        index=True
+        index=True,
     )
 
     created_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     opens_at = db.Column(db.DateTime, nullable=True)
     closes_at = db.Column(db.DateTime, nullable=True)
 
-    chama = db.relationship("Chama", back_populates="polls")
+    chama = db.relationship(
+        "Chama",
+        back_populates="polls",
+        foreign_keys=[chama_id],
+    )
+
     created_by = db.relationship("User", foreign_keys=[created_by_user_id])
 
     options = db.relationship(
         "PollOption",
         back_populates="poll",
         lazy=True,
-        cascade="all, delete-orphan"
+        cascade="all, delete-orphan",
+        foreign_keys="PollOption.poll_id",
     )
 
     votes = db.relationship(
         "Vote",
         back_populates="poll",
         lazy=True,
-        cascade="all, delete-orphan"
+        cascade="all, delete-orphan",
+        foreign_keys="Vote.poll_id",
     )
 
     @property
@@ -743,7 +863,11 @@ class PollOption(db.Model, TimestampMixin):
     poll_id = db.Column(db.Integer, db.ForeignKey("polls.id"), nullable=False, index=True)
     option_text = db.Column(db.String(255), nullable=False)
 
-    poll = db.relationship("Poll", back_populates="options")
+    poll = db.relationship(
+        "Poll",
+        back_populates="options",
+        foreign_keys=[poll_id],
+    )
 
     def __repr__(self):
         return f"<PollOption {self.id} poll={self.poll_id}>"
@@ -761,9 +885,19 @@ class Vote(db.Model, TimestampMixin):
     option_id = db.Column(db.Integer, db.ForeignKey("poll_options.id"), nullable=False, index=True)
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
 
-    poll = db.relationship("Poll", back_populates="votes")
-    option = db.relationship("PollOption")
-    user = db.relationship("User", back_populates="votes")
+    poll = db.relationship(
+        "Poll",
+        back_populates="votes",
+        foreign_keys=[poll_id],
+    )
+
+    option = db.relationship("PollOption", foreign_keys=[option_id])
+
+    user = db.relationship(
+        "User",
+        back_populates="votes",
+        foreign_keys=[user_id],
+    )
 
     def __repr__(self):
         return f"<Vote poll={self.poll_id} user={self.user_id}>"
@@ -805,14 +939,24 @@ class AuditLog(db.Model):
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
 
-    actor = db.relationship("User", foreign_keys=[actor_user_id], back_populates="audit_logs_actor")
-    target_user = db.relationship("User", foreign_keys=[target_user_id], back_populates="audit_logs_target_user")
-    chama = db.relationship("Chama")
-    membership = db.relationship("Membership")
-    loan = db.relationship("Loan")
-    contribution = db.relationship("Contribution")
-    poll = db.relationship("Poll")
-    vote = db.relationship("Vote")
+    actor = db.relationship(
+        "User",
+        foreign_keys=[actor_user_id],
+        back_populates="audit_logs_actor",
+    )
+
+    target_user = db.relationship(
+        "User",
+        foreign_keys=[target_user_id],
+        back_populates="audit_logs_target_user",
+    )
+
+    chama = db.relationship("Chama", foreign_keys=[chama_id])
+    membership = db.relationship("Membership", foreign_keys=[membership_id])
+    loan = db.relationship("Loan", foreign_keys=[loan_id])
+    contribution = db.relationship("Contribution", foreign_keys=[contribution_id])
+    poll = db.relationship("Poll", foreign_keys=[poll_id])
+    vote = db.relationship("Vote", foreign_keys=[vote_id])
 
     @staticmethod
     def log(

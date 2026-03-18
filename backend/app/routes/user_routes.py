@@ -1,6 +1,9 @@
 from flask import Blueprint
 from flask_restful import Api
 from Resources.User import (
+    SignUpResource,
+    LoginResource,
+    RefreshTokenResource,
     CurrentUserResource,
     UserProfileUpdateResource,
     ChangePasswordResource,
@@ -16,6 +19,12 @@ from Resources.User import (
 user_bp = Blueprint("user_bp", __name__, url_prefix="/api")
 api = Api(user_bp)
 
+# Authentication endpoints (no JWT required)
+api.add_resource(SignUpResource, "/auth/signup")
+api.add_resource(LoginResource, "/auth/login")
+api.add_resource(RefreshTokenResource, "/auth/refresh")
+
+# User endpoints (JWT required)
 api.add_resource(CurrentUserResource, "/me")
 api.add_resource(UserProfileUpdateResource, "/me/update")
 api.add_resource(ChangePasswordResource, "/me/change-password")
@@ -31,4 +40,3 @@ api.add_resource(DeactivateUserResource, "/users/<int:user_id>/deactivate")
 
 def register_user_routes(app):
     app.register_blueprint(user_bp)
-    

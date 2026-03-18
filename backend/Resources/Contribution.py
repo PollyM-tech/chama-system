@@ -1,6 +1,6 @@
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
-
+from app.extensions import db
 from flask import request
 from flask_restful import Resource
 from flask_jwt_extended import jwt_required, get_jwt_identity

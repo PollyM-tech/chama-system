@@ -1,9 +1,9 @@
 from datetime import datetime
 from flask import request
 from flask_restful import Resource
-from flask_jwt_extended import jwt_required, get_jwt_identity
+from flask_jwt_extended import jwt_required, get_jwt_identity, create_access_token, create_refresh_token
 from sqlalchemy import or_
-
+from app.extensions import db
 from models import (
     db,
     User,
@@ -24,12 +24,12 @@ def get_current_user():
     identity = get_jwt_identity()
     if not identity:
         return None
-
-    user = User.query.get(identity)
-    if not user:
+    
+    try :
+        user_id = int(identity)
+    except (ValueError, TypeError):
         return None
-
-    return user
+    return User.query.get(user_id)
 
 
 def user_basic_dict(user):
@@ -543,3 +543,169 @@ class DeactivateUserResource(Resource):
             "message": "User permanently deactivated successfully.",
             "user": user_basic_dict(target_user)
         }, 200
+
+
+class SignUpResource(Resource):
+    """
+    POST /auth/signup
+    Create a new user account
+    """
+    def post(self):
+        data = request.get_json() or {}
+
+        # Validate required fields
+        username = data.get("username", "").strip()
+        email = data.get("email", "").strip().lower()
+        password = data.get("password", "")
+        confirm_password = data.get("confirm_password", "")
+        first_name = data.get("first_name", "").strip()
+        last_name = data.get("last_name", "").strip()
+
+        if not username or not email or not password or not confirm_password:
+            return {
+                "message": "username, email, password, and confirm_password are required."
+            }, 400
+
+        if len(username) < 3:
+            return {"message": "Username must be at least 3 characters long."}, 400
+
+        if len(password) < 8:
+            return {"message": "Password must be at least 8 characters long."}, 400
+
+        if password != confirm_password:
+            return {"message": "Password and confirm password do not match."}, 400
+
+        # Check if username already exists
+        if User.query.filter_by(username=username).first():
+            return {"message": "Username already in use."}, 400
+
+        # Check if email already exists
+        if User.query.filter_by(email=email).first():
+            return {"message": "Email already registered."}, 400
+
+        # Create new user
+        try:
+            user = User(
+                username=username,
+                email=email,
+                first_name=first_name or None,
+                last_name=last_name or None
+            )
+            user.set_password(password)
+            db.session.add(user)
+            db.session.commit()
+
+            audit_log(
+                action=AuditAction.USER_CREATED,
+                actor_user_id=user.id,
+                target_user_id=user.id,
+                description="New user registered."
+            )
+
+            # Generate JWT tokens
+            access_token = create_access_token(identity=user.id)
+            refresh_token = create_refresh_token(identity=user.id)
+
+            return {
+                "message": "Account created successfully.",
+                "user": user_basic_dict(user),
+                "access_token": access_token,
+                "refresh_token": refresh_token
+            }, 201
+
+        except Exception as e:
+            db.session.rollback()
+            return {"message": f"Error creating account: {str(e)}"}, 500
+
+
+class LoginResource(Resource):
+    """
+    POST /auth/login
+    Authenticate user and return JWT tokens
+    """
+    def post(self):
+        data = request.get_json() or {}
+
+        # Accept either username or email
+        username_or_email = data.get("username_or_email", "").strip().lower()
+        password = data.get("password", "")
+
+        if not username_or_email or not password:
+            return {
+                "message": "username_or_email and password are required."
+            }, 400
+
+        # Find user by username or email
+        user = User.query.filter(
+            or_(
+                User.username == username_or_email,
+                User.email == username_or_email
+            )
+        ).first()
+
+        if not user:
+            return {"message": "Invalid credentials."}, 401
+
+        # Check password
+        if not user.check_password(password):
+            return {"message": "Invalid credentials."}, 401
+
+        # Check account status
+        if user.is_deactivated:
+            return {"message": "This account has been deactivated."}, 403
+
+        if user.is_deleted:
+            return {"message": "This account has been deleted."}, 403
+
+        # Update last login time
+        user.last_login_at = datetime.utcnow()
+        db.session.commit()
+
+        # Generate JWT tokens
+        access_token = create_access_token(identity=user.id)
+        refresh_token = create_refresh_token(identity=user.id)
+
+        audit_log(
+            action=AuditAction.USER_UPDATED,
+            actor_user_id=user.id,
+            target_user_id=user.id,
+            description="User logged in."
+        )
+
+        return {
+            "message": "Login successful.",
+            "user": user_basic_dict(user),
+            "access_token": access_token,
+            "refresh_token": refresh_token
+        }, 200
+
+
+class RefreshTokenResource(Resource):
+    """
+    POST /auth/refresh
+    Refresh access token using refresh token
+    """
+    @jwt_required(refresh=True)
+    def post(self):
+        identity = get_jwt_identity()
+        if not identity:
+            return {"message": "Invalid refresh token."}, 401
+
+        user = User.query.get(identity)
+        if not user:
+            return {"message": "User not found."}, 404
+
+        if user.is_deactivated:
+            return {"message": "This account has been deactivated."}, 403
+
+        if user.is_deleted:
+            return {"message": "This account has been deleted."}, 403
+
+        # Generate new access token
+        access_token = create_access_token(identity=user.id)
+
+        return {
+            "message": "Token refreshed successfully.",
+            "access_token": access_token
+        }, 200
+    
