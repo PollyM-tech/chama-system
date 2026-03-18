@@ -13,7 +13,7 @@ from Resources.User import (
     DeactivateUserResource,
 )
 
-user_bp = Blueprint("user_bp", __name__)
+user_bp = Blueprint("user_bp", __name__, url_prefix="/api")
 api = Api(user_bp)
 
 api.add_resource(CurrentUserResource, "/me")
@@ -27,3 +27,8 @@ api.add_resource(UserMembershipsResource, "/users/<int:user_id>/memberships")
 api.add_resource(SoftDeleteUserResource, "/users/<int:user_id>/soft-delete")
 api.add_resource(RestoreUserResource, "/users/<int:user_id>/restore")
 api.add_resource(DeactivateUserResource, "/users/<int:user_id>/deactivate")
+
+
+def register_user_routes(app):
+    app.register_blueprint(user_bp)
+    

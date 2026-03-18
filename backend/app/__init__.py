@@ -27,13 +27,11 @@ def create_app():
 
     CORS(app, resources={r"/api/*": {"origins": app.config["FRONTEND_URL"]}})
 
-    api = Api(app)
-
-    register_user_routes(api)
-    register_chama_routes(api)
-    register_loan_routes(api)
-    register_contribution_routes(api)
-    register_vote_routes(api)
+    register_user_routes(app)
+    register_chama_routes(app)
+    register_loan_routes(app)
+    register_contribution_routes(app)
+    register_vote_routes(app)
 
     @app.route("/")
     def index():
