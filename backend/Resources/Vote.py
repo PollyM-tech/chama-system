@@ -302,6 +302,8 @@ class ChamaPollsResource(Resource):
 class PollDetailResource(Resource):
     """
     GET /chamas/<int:chama_id>/polls/<int:poll_id>
+    PATCH /chamas/<int:chama_id>/polls/<int:poll_id>
+    DELETE /chamas/<int:chama_id>/polls/<int:poll_id>
     """
     @jwt_required()
     def get(self, chama_id, poll_id):
@@ -321,14 +323,9 @@ class PollDetailResource(Resource):
             "poll": poll_dict(poll, include_options=True, include_results=True)
         }, 200
 
-
-class PollUpdateResource(Resource):
-    """
-    PATCH /chamas/<int:chama_id>/polls/<int:poll_id>
-    Only admin or secretary
-    """
     @jwt_required()
     def patch(self, chama_id, poll_id):
+        """Only admin or secretary can update polls."""
         current_user = get_current_user()
         result, error = require_poll_manager(current_user, chama_id)
         if error:
@@ -384,7 +381,7 @@ class PollUpdateResource(Resource):
         db.session.commit()
 
         audit_log(
-            action=AuditAction.POLL_CREATED,
+            action=AuditAction.POLL_UPDATED,
             actor_user_id=current_user.id,
             chama_id=chama.id,
             poll_id=poll.id,
@@ -399,14 +396,9 @@ class PollUpdateResource(Resource):
             "poll": poll_dict(poll, include_options=True, include_results=False)
         }, 200
 
-
-class PollDeleteResource(Resource):
-    """
-    DELETE /chamas/<int:chama_id>/polls/<int:poll_id>
-    Only admin or secretary
-    """
     @jwt_required()
     def delete(self, chama_id, poll_id):
+        """Only admin or secretary can delete polls."""
         current_user = get_current_user()
         result, error = require_poll_manager(current_user, chama_id)
         if error:
@@ -424,7 +416,7 @@ class PollDeleteResource(Resource):
         db.session.commit()
 
         audit_log(
-            action=AuditAction.POLL_CREATED,
+            action=AuditAction.POLL_DELETED,
             actor_user_id=current_user.id,
             chama_id=chama.id,
             poll_id=poll_id,

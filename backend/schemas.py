@@ -1,6 +1,6 @@
 from marshmallow import Schema, fields, ValidationError, validates, validates_schema
 from marshmallow_sqlalchemy import SQLAlchemyAutoSchema, auto_field
-from models import db, User, Chama, Membership, Loan, Contribution, Vote, VoteOption, VoteCast, Profile
+from models import User, Chama, Membership, Loan, Contribution, Poll, PollOption, Vote
 import re
 from datetime import datetime
 
@@ -28,14 +28,6 @@ class UserSchema(SQLAlchemyAutoSchema):
             raise ValidationError('Username must be at least 3 characters')
         if not re.match("^[A-Za-z0-9_]+$", value):
             raise ValidationError('Username can only contain letters, numbers and underscores')
-
-class ProfileSchema(SQLAlchemyAutoSchema):
-    class Meta:
-        model = Profile
-        load_instance = True
-    
-    date_of_birth = fields.Date()
-    phone = fields.Str(validate=lambda x: len(x) >= 10 if x else True)
 
 class ChamaSchema(SQLAlchemyAutoSchema):
     class Meta:
@@ -77,24 +69,24 @@ class ContributionSchema(SQLAlchemyAutoSchema):
     payment_method = fields.Str(validate=lambda x: x in ['mpesa', 'bank', 'other'])
     status = fields.Str(validate=lambda x: x in ['pending', 'confirmed', 'failed'])
 
-class VoteSchema(SQLAlchemyAutoSchema):
+class PollSchema(SQLAlchemyAutoSchema):
     class Meta:
-        model = Vote
+        model = Poll
         load_instance = True
     
-    topic = fields.Str(required=True, validate=lambda x: len(x) >= 5)
-    status = fields.Str(validate=lambda x: x in ['open', 'closed'])
+    title = fields.Str(required=True, validate=lambda x: len(x) >= 5)
+    status = fields.Str(validate=lambda x: x in ['draft', 'open', 'closed', 'archived'])
 
-class VoteOptionSchema(SQLAlchemyAutoSchema):
+class PollOptionSchema(SQLAlchemyAutoSchema):
     class Meta:
-        model = VoteOption
+        model = PollOption
         load_instance = True
     
     option_text = fields.Str(required=True, validate=lambda x: len(x) >= 1)
 
-class VoteCastSchema(SQLAlchemyAutoSchema):
+class VoteSchema(SQLAlchemyAutoSchema):
     class Meta:
-        model = VoteCast
+        model = Vote
         load_instance = True
 
 class SignupSchema(Schema):
@@ -120,7 +112,6 @@ class LoanCalculatorSchema(Schema):
 # Initialize schemas
 user_schema = UserSchema()
 users_schema = UserSchema(many=True)
-profile_schema = ProfileSchema()
 chama_schema = ChamaSchema()
 chamas_schema = ChamaSchema(many=True)
 membership_schema = MembershipSchema()
@@ -129,11 +120,12 @@ loan_schema = LoanSchema()
 loans_schema = LoanSchema(many=True)
 contribution_schema = ContributionSchema()
 contributions_schema = ContributionSchema(many=True)
+poll_schema = PollSchema()
+polls_schema = PollSchema(many=True)
+poll_option_schema = PollOptionSchema()
+poll_options_schema = PollOptionSchema(many=True)
 vote_schema = VoteSchema()
 votes_schema = VoteSchema(many=True)
-vote_option_schema = VoteOptionSchema()
-vote_options_schema = VoteOptionSchema(many=True)
-vote_cast_schema = VoteCastSchema()
 login_schema = LoginSchema()
 loan_calculator_schema = LoanCalculatorSchema()
 signup_schema = SignupSchema()

@@ -1,6 +1,5 @@
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
-from app.extensions import db
 from flask import request
 from flask_restful import Resource
 from flask_jwt_extended import jwt_required, get_jwt_identity
@@ -311,6 +310,8 @@ class MyLoansResource(Resource):
 class LoanDetailResource(Resource):
     """
     GET /chamas/<int:chama_id>/loans/<int:loan_id>
+    PATCH /chamas/<int:chama_id>/loans/<int:loan_id>
+    DELETE /chamas/<int:chama_id>/loans/<int:loan_id>
     """
     @jwt_required()
     def get(self, chama_id, loan_id):
@@ -329,6 +330,104 @@ class LoanDetailResource(Resource):
             "message": "Loan retrieved successfully.",
             "loan": loan_dict(loan)
         }, 200
+
+    @jwt_required()
+    def patch(self, chama_id, loan_id):
+        """Limited admin/treasurer update for pending/approved loans."""
+        current_user = get_current_user()
+        result, error = require_finance_roles(current_user, chama_id)
+        if error:
+            return error
+
+        chama, actor_membership = result
+        loan = Loan.query.filter_by(id=loan_id, chama_id=chama.id).first()
+
+        if not loan:
+            return {"message": "Loan not found."}, 404
+
+        if loan.status not in {LoanStatus.PENDING, LoanStatus.APPROVED}:
+            return {"message": "Only pending or approved loans can be updated here."}, 400
+
+        data = request.get_json() or {}
+        old_values = loan_dict(loan)
+
+        if "principal_amount" in data:
+            amount = parse_amount(data.get("principal_amount"))
+            if amount is None:
+                return {"message": "A valid positive principal_amount is required."}, 400
+            loan.principal_amount = amount
+
+        if "interest_rate" in data:
+            rate = parse_amount(data.get("interest_rate"))
+            if rate is None and data.get("interest_rate") not in [None, "", 0, "0", "0.00"]:
+                return {"message": "Invalid interest_rate."}, 400
+            loan.interest_rate = rate or Decimal("0.00")
+
+        if "purpose" in data:
+            loan.purpose = data.get("purpose")
+
+        if "due_date" in data:
+            due_date, due_date_error = parse_optional_date(data.get("due_date"), "due_date")
+            if due_date_error:
+                return due_date_error, 400
+            loan.due_date = due_date
+
+        loan.calculate_total_due()
+        db.session.commit()
+
+        audit_log(
+            action=AuditAction.LOAN_UPDATED,
+            actor_user_id=current_user.id,
+            target_user_id=loan.borrower_user_id,
+            chama_id=chama.id,
+            loan_id=loan.id,
+            membership_id=actor_membership.id,
+            description="Loan updated.",
+            old_values=old_values,
+            new_values=loan_dict(loan),
+        )
+
+        return {
+            "message": "Loan updated successfully.",
+            "loan": loan_dict(loan)
+        }, 200
+
+    @jwt_required()
+    def delete(self, chama_id, loan_id):
+        """Only pending loans can be deleted by admin/treasurer."""
+        current_user = get_current_user()
+        result, error = require_finance_roles(current_user, chama_id)
+        if error:
+            return error
+
+        chama, actor_membership = result
+        loan = Loan.query.filter_by(id=loan_id, chama_id=chama.id).first()
+
+        if not loan:
+            return {"message": "Loan not found."}, 404
+
+        if loan.status != LoanStatus.PENDING:
+            return {"message": "Only pending loans can be deleted."}, 400
+
+        old_values = loan_dict(loan)
+        borrower_user_id = loan.borrower_user_id
+
+        db.session.delete(loan)
+        db.session.commit()
+
+        audit_log(
+            action=AuditAction.LOAN_DELETED,
+            actor_user_id=current_user.id,
+            target_user_id=borrower_user_id,
+            chama_id=chama.id,
+            membership_id=actor_membership.id,
+            description="Pending loan deleted.",
+            old_values=old_values,
+            new_values=None,
+            metadata_json={"deleted_loan_id": loan_id},
+        )
+
+        return {"message": "Loan deleted successfully."}, 200
 
 
 class LoanApprovalResource(Resource):
@@ -456,7 +555,7 @@ class LoanDisbursementResource(Resource):
         db.session.commit()
 
         audit_log(
-            action=AuditAction.LOAN_APPROVED,
+            action=AuditAction.LOAN_DISBURSED,
             actor_user_id=current_user.id,
             target_user_id=loan.borrower_user_id,
             chama_id=chama.id,
@@ -579,111 +678,3 @@ class LoanRepaymentsResource(Resource):
             "loan": loan_dict(loan),
             "repayment": repayment_dict(repayment)
         }, 201
-
-
-class LoanUpdateResource(Resource):
-    """
-    PATCH /chamas/<int:chama_id>/loans/<int:loan_id>
-    Limited admin/treasurer update for pending/approved loans.
-    """
-    @jwt_required()
-    def patch(self, chama_id, loan_id):
-        current_user = get_current_user()
-        result, error = require_finance_roles(current_user, chama_id)
-        if error:
-            return error
-
-        chama, actor_membership = result
-        loan = Loan.query.filter_by(id=loan_id, chama_id=chama.id).first()
-
-        if not loan:
-            return {"message": "Loan not found."}, 404
-
-        if loan.status not in {LoanStatus.PENDING, LoanStatus.APPROVED}:
-            return {"message": "Only pending or approved loans can be updated here."}, 400
-
-        data = request.get_json() or {}
-        old_values = loan_dict(loan)
-
-        if "principal_amount" in data:
-            amount = parse_amount(data.get("principal_amount"))
-            if amount is None:
-                return {"message": "A valid positive principal_amount is required."}, 400
-            loan.principal_amount = amount
-
-        if "interest_rate" in data:
-            rate = parse_amount(data.get("interest_rate"))
-            if rate is None and data.get("interest_rate") not in [None, "", 0, "0", "0.00"]:
-                return {"message": "Invalid interest_rate."}, 400
-            loan.interest_rate = rate or Decimal("0.00")
-
-        if "purpose" in data:
-            loan.purpose = data.get("purpose")
-
-        if "due_date" in data:
-            due_date, due_date_error = parse_optional_date(data.get("due_date"), "due_date")
-            if due_date_error:
-                return due_date_error, 400
-            loan.due_date = due_date
-
-        loan.calculate_total_due()
-        db.session.commit()
-
-        audit_log(
-            action=AuditAction.LOAN_APPLIED,
-            actor_user_id=current_user.id,
-            target_user_id=loan.borrower_user_id,
-            chama_id=chama.id,
-            loan_id=loan.id,
-            membership_id=actor_membership.id,
-            description="Loan updated.",
-            old_values=old_values,
-            new_values=loan_dict(loan),
-        )
-
-        return {
-            "message": "Loan updated successfully.",
-            "loan": loan_dict(loan)
-        }, 200
-
-
-class LoanDeleteResource(Resource):
-    """
-    DELETE /chamas/<int:chama_id>/loans/<int:loan_id>
-    Only pending loans can be deleted by admin/treasurer.
-    """
-    @jwt_required()
-    def delete(self, chama_id, loan_id):
-        current_user = get_current_user()
-        result, error = require_finance_roles(current_user, chama_id)
-        if error:
-            return error
-
-        chama, actor_membership = result
-        loan = Loan.query.filter_by(id=loan_id, chama_id=chama.id).first()
-
-        if not loan:
-            return {"message": "Loan not found."}, 404
-
-        if loan.status != LoanStatus.PENDING:
-            return {"message": "Only pending loans can be deleted."}, 400
-
-        old_values = loan_dict(loan)
-        borrower_user_id = loan.borrower_user_id
-
-        db.session.delete(loan)
-        db.session.commit()
-
-        audit_log(
-            action=AuditAction.LOAN_REJECTED,
-            actor_user_id=current_user.id,
-            target_user_id=borrower_user_id,
-            chama_id=chama.id,
-            membership_id=actor_membership.id,
-            description="Pending loan deleted.",
-            old_values=old_values,
-            new_values=None,
-            metadata_json={"deleted_loan_id": loan_id},
-        )
-
-        return {"message": "Loan deleted successfully."}, 200

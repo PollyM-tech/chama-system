@@ -3,7 +3,6 @@ from flask_restful import Api
 from Resources.Chama import (
     ChamaCreateResource,
     ChamaDetailResource,
-    ChamaUpdateResource,
     ChamaMembersResource,
     ChamaInviteMemberResource,
     ChamaPendingInvitesResource,
@@ -19,7 +18,6 @@ api = Api(chama_bp)
 
 api.add_resource(ChamaCreateResource, "/chamas")
 api.add_resource(ChamaDetailResource, "/chamas/<int:chama_id>")
-api.add_resource(ChamaUpdateResource, "/chamas/<int:chama_id>")
 api.add_resource(ChamaMembersResource, "/chamas/<int:chama_id>/members")
 api.add_resource(ChamaInviteMemberResource, "/chamas/<int:chama_id>/invite")
 api.add_resource(ChamaPendingInvitesResource, "/chamas/<int:chama_id>/invites")

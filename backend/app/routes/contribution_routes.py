@@ -1,8 +1,7 @@
 from flask import Blueprint
 from flask_restful import Api
 from Resources.Contribution import (
-    ContributionCreateResource,
-    ChamaContributionListResource,
+    ChamaContributionsResource,
     MyContributionHistoryResource,
     MemberContributionHistoryResource,
     ContributionUpdateResource,
@@ -13,8 +12,7 @@ from Resources.Contribution import (
 contribution_bp = Blueprint("contribution_bp", __name__, url_prefix="/api")
 api = Api(contribution_bp)
 
-api.add_resource(ContributionCreateResource, "/chamas/<int:chama_id>/contributions")
-api.add_resource(ChamaContributionListResource, "/chamas/<int:chama_id>/contributions")
+api.add_resource(ChamaContributionsResource, "/chamas/<int:chama_id>/contributions")
 api.add_resource(MyContributionHistoryResource, "/chamas/<int:chama_id>/my-contributions")
 api.add_resource(MemberContributionHistoryResource, "/chamas/<int:chama_id>/members/<int:user_id>/contributions")
 api.add_resource(ContributionUpdateResource, "/chamas/<int:chama_id>/contributions/<int:contribution_id>")

@@ -8,8 +8,6 @@ from Resources.Loan import (
     LoanRejectionResource,
     LoanDisbursementResource,
     LoanRepaymentsResource,
-    LoanUpdateResource,
-    LoanDeleteResource,
 )
 
 loan_bp = Blueprint("loan_bp", __name__, url_prefix="/api")
@@ -22,12 +20,7 @@ api.add_resource(LoanApprovalResource, "/chamas/<int:chama_id>/loans/<int:loan_i
 api.add_resource(LoanRejectionResource, "/chamas/<int:chama_id>/loans/<int:loan_id>/reject")
 api.add_resource(LoanDisbursementResource, "/chamas/<int:chama_id>/loans/<int:loan_id>/disburse")
 api.add_resource(LoanRepaymentsResource, "/chamas/<int:chama_id>/loans/<int:loan_id>/repayments")
-api.add_resource(LoanUpdateResource, "/chamas/<int:chama_id>/loans/<int:loan_id>")
-api.add_resource(LoanDeleteResource, "/chamas/<int:chama_id>/loans/<int:loan_id>")
 
-
-def register_loan_routes(app):
-    app.register_blueprint(loan_bp)
 
 def register_loan_routes(app):
     app.register_blueprint(loan_bp)

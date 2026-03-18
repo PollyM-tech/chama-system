@@ -1,6 +1,5 @@
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
-from app.extensions import db
 from flask import request
 from flask_restful import Resource
 from flask_jwt_extended import jwt_required, get_jwt_identity
@@ -151,14 +150,71 @@ def member_summary_row(user, contributions):
 # RESOURCES
 # =========================================================
 
-class ContributionCreateResource(Resource):
+class ChamaContributionsResource(Resource):
     """
+    GET /chamas/<int:chama_id>/contributions
     POST /chamas/<int:chama_id>/contributions
-
-    Only admin or treasurer can record contributions.
     """
     @jwt_required()
+    def get(self, chama_id):
+        """Any active member can view contributions in their chama."""
+        current_user = get_current_user()
+        result, error = require_chama_membership(current_user, chama_id)
+        if error:
+            return error
+
+        chama, membership = result
+
+        query = (
+            Contribution.query
+            .filter(Contribution.chama_id == chama.id)
+            .order_by(Contribution.contribution_date.desc(), Contribution.id.desc())
+        )
+
+        user_id = request.args.get("user_id", type=int)
+        payment_method = request.args.get("payment_method", type=str)
+        start_date = request.args.get("start_date", type=str)
+        end_date = request.args.get("end_date", type=str)
+
+        if user_id:
+            target_membership = Membership.query.filter_by(
+                user_id=user_id,
+                chama_id=chama.id
+            ).first()
+            if not target_membership:
+                return {"message": "The requested user does not belong to this chama."}, 400
+            query = query.filter(Contribution.user_id == user_id)
+
+        if payment_method:
+            query = query.filter(Contribution.payment_method.ilike(payment_method.strip()))
+
+        if start_date:
+            try:
+                start_dt = datetime.fromisoformat(start_date)
+                query = query.filter(Contribution.contribution_date >= start_dt)
+            except ValueError:
+                return {"message": "Invalid start_date. Use ISO format."}, 400
+
+        if end_date:
+            try:
+                end_dt = datetime.fromisoformat(end_date)
+                query = query.filter(Contribution.contribution_date <= end_dt)
+            except ValueError:
+                return {"message": "Invalid end_date. Use ISO format."}, 400
+
+        contributions = query.all()
+        total_amount = round(sum(float(c.amount or 0) for c in contributions), 2)
+
+        return {
+            "message": "Contributions retrieved successfully.",
+            "count": len(contributions),
+            "total_amount": total_amount,
+            "contributions": [contribution_dict(c) for c in contributions]
+        }, 200
+
+    @jwt_required()
     def post(self, chama_id):
+        """Only admin or treasurer can record contributions."""
         current_user = get_current_user()
         result, error = require_finance_roles(current_user, chama_id)
         if error:
@@ -229,74 +285,6 @@ class ContributionCreateResource(Resource):
             "message": "Contribution recorded successfully.",
             "contribution": contribution_dict(contribution)
         }, 201
-
-
-class ChamaContributionListResource(Resource):
-    """
-    GET /chamas/<int:chama_id>/contributions
-
-    Any active member can view contributions in their chama.
-    Supports optional filters:
-    - user_id
-    - start_date
-    - end_date
-    - payment_method
-    """
-    @jwt_required()
-    def get(self, chama_id):
-        current_user = get_current_user()
-        result, error = require_chama_membership(current_user, chama_id)
-        if error:
-            return error
-
-        chama, membership = result
-
-        query = (
-            Contribution.query
-            .filter(Contribution.chama_id == chama.id)
-            .order_by(Contribution.contribution_date.desc(), Contribution.id.desc())
-        )
-
-        user_id = request.args.get("user_id", type=int)
-        payment_method = request.args.get("payment_method", type=str)
-        start_date = request.args.get("start_date", type=str)
-        end_date = request.args.get("end_date", type=str)
-
-        if user_id:
-            target_membership = Membership.query.filter_by(
-                user_id=user_id,
-                chama_id=chama.id
-            ).first()
-            if not target_membership:
-                return {"message": "The requested user does not belong to this chama."}, 400
-            query = query.filter(Contribution.user_id == user_id)
-
-        if payment_method:
-            query = query.filter(Contribution.payment_method.ilike(payment_method.strip()))
-
-        if start_date:
-            try:
-                start_dt = datetime.fromisoformat(start_date)
-                query = query.filter(Contribution.contribution_date >= start_dt)
-            except ValueError:
-                return {"message": "Invalid start_date. Use ISO format."}, 400
-
-        if end_date:
-            try:
-                end_dt = datetime.fromisoformat(end_date)
-                query = query.filter(Contribution.contribution_date <= end_dt)
-            except ValueError:
-                return {"message": "Invalid end_date. Use ISO format."}, 400
-
-        contributions = query.all()
-        total_amount = round(sum(float(c.amount or 0) for c in contributions), 2)
-
-        return {
-            "message": "Contributions retrieved successfully.",
-            "count": len(contributions),
-            "total_amount": total_amount,
-            "contributions": [contribution_dict(c) for c in contributions]
-        }, 200
 
 
 class MyContributionHistoryResource(Resource):
@@ -442,7 +430,7 @@ class ContributionUpdateResource(Resource):
         db.session.commit()
 
         audit_log(
-            action=AuditAction.CONTRIBUTION_RECORDED,
+            action=AuditAction.CONTRIBUTION_UPDATED,
             actor_user_id=current_user.id,
             target_user_id=contribution.user_id,
             chama_id=chama.id,
@@ -489,7 +477,7 @@ class ContributionDeleteResource(Resource):
         db.session.commit()
 
         audit_log(
-            action=AuditAction.CONTRIBUTION_RECORDED,
+            action=AuditAction.CONTRIBUTION_DELETED,
             actor_user_id=current_user.id,
             target_user_id=target_user_id,
             chama_id=chama.id,

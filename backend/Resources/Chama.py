@@ -3,8 +3,6 @@ from flask import request
 from flask_restful import Resource
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from sqlalchemy import or_
-from app.extensions import db
-
 from models import (
     db,
     User,
@@ -275,10 +273,11 @@ class ChamaCreateResource(Resource):
 class ChamaDetailResource(Resource):
     """
     GET /chamas/<int:chama_id>
-    Member-only chama detail
+    PUT /chamas/<int:chama_id>
     """
     @jwt_required()
     def get(self, chama_id):
+        """Member-only chama detail."""
         current_user = get_current_user()
         result, error = require_chama_membership(current_user, chama_id)
         if error:
@@ -290,15 +289,9 @@ class ChamaDetailResource(Resource):
             "chama": chama_dict(chama, membership)
         }, 200
 
-
-class ChamaUpdateResource(Resource):
-    """
-    PUT /chamas/<int:chama_id>
-    Update chama settings
-    Allowed: admin, treasurer, secretary
-    """
     @jwt_required()
     def put(self, chama_id):
+        """Update chama settings. Allowed: admin, treasurer, secretary."""
         current_user = get_current_user()
         result, error = require_chama_roles(
             current_user,
