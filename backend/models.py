@@ -1,10 +1,11 @@
 from datetime import datetime, timedelta
 import enum
 import secrets
+from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import UniqueConstraint, Index
 from werkzeug.security import generate_password_hash, check_password_hash
-from app.extensions import db
 
+db = SQLAlchemy()
 
 # =========================================================
 # ENUMS

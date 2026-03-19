@@ -1,9 +1,9 @@
 from datetime import datetime
+
 from flask import request
 from flask_restful import Resource
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from sqlalchemy import or_
-from app.extensions import db
 
 from models import (
     db,
@@ -28,7 +28,25 @@ def get_current_user():
     identity = get_jwt_identity()
     if not identity:
         return None
-    return User.query.get(identity)
+
+    try:
+        user_id = int(identity)
+    except (ValueError, TypeError):
+        return None
+
+    return User.query.get(user_id)
+
+
+def get_chama_by_id(chama_id):
+    return Chama.query.get(chama_id)
+
+
+def get_active_membership(user_id, chama_id):
+    return Membership.query.filter_by(
+        user_id=user_id,
+        chama_id=chama_id,
+        status=MembershipStatus.ACTIVE,
+    ).first()
 
 
 def audit_log(
@@ -69,7 +87,8 @@ def chama_dict(chama, membership=None):
         "status": chama.status.value if chama.status else None,
         "currency": chama.currency,
         "contribution_frequency": chama.contribution_frequency,
-        "base_contribution_amount": float(chama.base_contribution_amount) if chama.base_contribution_amount is not None else None,
+        "base_contribution_amount": float(chama.base_contribution_amount)
+        if chama.base_contribution_amount is not None else None,
         "created_by_user_id": chama.created_by_user_id,
         "created_at": chama.created_at.isoformat() if chama.created_at else None,
         "updated_at": chama.updated_at.isoformat() if chama.updated_at else None,
@@ -78,7 +97,7 @@ def chama_dict(chama, membership=None):
             "role": membership.role.value if membership.role else None,
             "status": membership.status.value if membership.status else None,
             "joined_at": membership.joined_at.isoformat() if membership.joined_at else None,
-        } if membership else None
+        } if membership else None,
     }
 
 
@@ -115,18 +134,6 @@ def invite_dict(invite):
     }
 
 
-def get_chama_or_404(chama_id):
-    return Chama.query.get(chama_id)
-
-
-def get_active_membership(user_id, chama_id):
-    return Membership.query.filter_by(
-        user_id=user_id,
-        chama_id=chama_id,
-        status=MembershipStatus.ACTIVE
-    ).first()
-
-
 def require_chama_membership(current_user, chama_id):
     if not current_user:
         return None, ({"message": "User not found."}, 404)
@@ -134,7 +141,7 @@ def require_chama_membership(current_user, chama_id):
     if not current_user.is_active_account:
         return None, ({"message": "Inactive account cannot access chama resources."}, 403)
 
-    chama = get_chama_or_404(chama_id)
+    chama = get_chama_by_id(chama_id)
     if not chama:
         return None, ({"message": "Chama not found."}, 404)
 
@@ -169,20 +176,36 @@ def can_manage_onboarding(membership):
 def normalize_role(value):
     if not value:
         return None
+
     value = value.strip().lower()
     for role in MembershipRole:
         if role.value == value:
             return role
+
     return None
 
 
 def normalize_chama_status(value):
     if not value:
         return None
+
     value = value.strip().lower()
     for status in ChamaStatus:
         if status.value == value:
             return status
+
+    return None
+
+
+def normalize_membership_status(value):
+    if not value:
+        return None
+
+    value = value.strip().lower()
+    for status in MembershipStatus:
+        if status.value == value:
+            return status
+
     return None
 
 
@@ -191,10 +214,6 @@ def normalize_chama_status(value):
 # =========================================================
 
 class ChamaCreateResource(Resource):
-    """
-    POST /chamas
-    Create a chama and create creator membership as ADMIN
-    """
     @jwt_required()
     def post(self):
         current_user = get_current_user()
@@ -223,60 +242,61 @@ class ChamaCreateResource(Resource):
         if existing_slug:
             return {"message": "Slug already exists."}, 400
 
-        chama = Chama(
-            name=name,
-            slug=slug,
-            description=description,
-            currency=currency,
-            contribution_frequency=contribution_frequency,
-            base_contribution_amount=base_contribution_amount,
-            status=ChamaStatus.ACTIVE,
-            created_by_user_id=current_user.id,
-        )
-        db.session.add(chama)
-        db.session.flush()
+        try:
+            chama = Chama(
+                name=name,
+                slug=slug,
+                description=description,
+                currency=currency,
+                contribution_frequency=contribution_frequency,
+                base_contribution_amount=base_contribution_amount,
+                status=ChamaStatus.ACTIVE,
+                created_by_user_id=current_user.id,
+            )
+            db.session.add(chama)
+            db.session.flush()
 
-        creator_membership = Membership(
-            user_id=current_user.id,
-            chama_id=chama.id,
-            role=MembershipRole.ADMIN,
-            status=MembershipStatus.ACTIVE,
-            joined_at=datetime.utcnow(),
-            approved_by_user_id=current_user.id,
-            invited_by_user_id=current_user.id,
-        )
-        db.session.add(creator_membership)
-        db.session.commit()
+            creator_membership = Membership(
+                user_id=current_user.id,
+                chama_id=chama.id,
+                role=MembershipRole.ADMIN,
+                status=MembershipStatus.ACTIVE,
+                joined_at=datetime.utcnow(),
+                approved_by_user_id=current_user.id,
+                invited_by_user_id=current_user.id,
+            )
+            db.session.add(creator_membership)
+            db.session.commit()
 
-        audit_log(
-            action=AuditAction.CHAMA_CREATED,
-            actor_user_id=current_user.id,
-            chama_id=chama.id,
-            description="User created a new chama.",
-            new_values=chama_dict(chama, creator_membership),
-        )
+            audit_log(
+                action=AuditAction.CHAMA_CREATED,
+                actor_user_id=current_user.id,
+                chama_id=chama.id,
+                description="User created a new chama.",
+                new_values=chama_dict(chama, creator_membership),
+            )
 
-        audit_log(
-            action=AuditAction.MEMBERSHIP_CREATED,
-            actor_user_id=current_user.id,
-            target_user_id=current_user.id,
-            chama_id=chama.id,
-            membership_id=creator_membership.id,
-            description="Creator added as chama admin.",
-            new_values=membership_dict(creator_membership),
-        )
+            audit_log(
+                action=AuditAction.MEMBERSHIP_CREATED,
+                actor_user_id=current_user.id,
+                target_user_id=current_user.id,
+                chama_id=chama.id,
+                membership_id=creator_membership.id,
+                description="Creator added as chama admin.",
+                new_values=membership_dict(creator_membership),
+            )
 
-        return {
-            "message": "Chama created successfully.",
-            "chama": chama_dict(chama, creator_membership)
-        }, 201
+            return {
+                "message": "Chama created successfully.",
+                "chama": chama_dict(chama, creator_membership),
+            }, 201
+
+        except Exception as e:
+            db.session.rollback()
+            return {"message": f"Error creating chama: {str(e)}"}, 500
 
 
 class ChamaDetailResource(Resource):
-    """
-    GET /chamas/<int:chama_id>
-    Member-only chama detail
-    """
     @jwt_required()
     def get(self, chama_id):
         current_user = get_current_user()
@@ -285,18 +305,14 @@ class ChamaDetailResource(Resource):
             return error
 
         chama, membership = result
+
         return {
             "message": "Chama retrieved successfully.",
-            "chama": chama_dict(chama, membership)
+            "chama": chama_dict(chama, membership),
         }, 200
 
 
 class ChamaUpdateResource(Resource):
-    """
-    PUT /chamas/<int:chama_id>
-    Update chama settings
-    Allowed: admin, treasurer, secretary
-    """
     @jwt_required()
     def put(self, chama_id):
         current_user = get_current_user()
@@ -307,7 +323,7 @@ class ChamaUpdateResource(Resource):
                 MembershipRole.ADMIN,
                 MembershipRole.TREASURER,
                 MembershipRole.SECRETARY,
-            }
+            },
         )
         if error:
             return error
@@ -338,17 +354,21 @@ class ChamaUpdateResource(Resource):
 
             existing_slug = Chama.query.filter(
                 Chama.slug == slug,
-                Chama.id != chama.id
+                Chama.id != chama.id,
             ).first()
             if existing_slug:
                 return {"message": "Slug already exists."}, 400
+
             chama.slug = slug
 
         if description is not None:
             chama.description = description
 
         if currency is not None:
-            chama.currency = currency.strip().upper()
+            currency = currency.strip().upper()
+            if not currency:
+                return {"message": "currency cannot be empty."}, 400
+            chama.currency = currency
 
         if contribution_frequency is not None:
             chama.contribution_frequency = contribution_frequency
@@ -376,15 +396,11 @@ class ChamaUpdateResource(Resource):
 
         return {
             "message": "Chama updated successfully.",
-            "chama": chama_dict(chama, membership)
+            "chama": chama_dict(chama, membership),
         }, 200
 
 
 class ChamaMembersResource(Resource):
-    """
-    GET /chamas/<int:chama_id>/members
-    Any active member can view chama members
-    """
     @jwt_required()
     def get(self, chama_id):
         current_user = get_current_user()
@@ -393,7 +409,6 @@ class ChamaMembersResource(Resource):
             return error
 
         chama, membership = result
-
         status_filter = (request.args.get("status") or "").strip().lower()
 
         query = (
@@ -404,14 +419,10 @@ class ChamaMembersResource(Resource):
         )
 
         if status_filter:
-            valid = None
-            for s in MembershipStatus:
-                if s.value == status_filter:
-                    valid = s
-                    break
-            if not valid:
+            normalized_status = normalize_membership_status(status_filter)
+            if not normalized_status:
                 return {"message": "Invalid membership status filter."}, 400
-            query = query.filter(Membership.status == valid)
+            query = query.filter(Membership.status == normalized_status)
 
         memberships = query.all()
 
@@ -419,15 +430,11 @@ class ChamaMembersResource(Resource):
             "message": "Chama members retrieved successfully.",
             "chama": chama_dict(chama, membership),
             "count": len(memberships),
-            "members": [membership_dict(m) for m in memberships]
+            "members": [membership_dict(m) for m in memberships],
         }, 200
 
 
 class ChamaInviteMemberResource(Resource):
-    """
-    POST /chamas/<int:chama_id>/invite
-    Only admin, treasurer, secretary can invite/onboard
-    """
     @jwt_required()
     def post(self, chama_id):
         current_user = get_current_user()
@@ -438,9 +445,7 @@ class ChamaInviteMemberResource(Resource):
         chama, actor_membership = result
 
         if not can_manage_onboarding(actor_membership):
-            return {
-                "message": "Only admin, treasurer, or secretary can invite members."
-            }, 403
+            return {"message": "Only admin, treasurer, or secretary can invite members."}, 403
 
         data = request.get_json() or {}
 
@@ -457,20 +462,21 @@ class ChamaInviteMemberResource(Resource):
             return {"message": "Invalid membership role."}, 400
 
         existing_user = None
-        if email or phone_number:
-            filters = []
-            if email:
-                filters.append(User.email == email)
-            if phone_number:
-                filters.append(User.phone_number == phone_number)
+        filters = []
 
-            if filters:
-                existing_user = User.query.filter(or_(*filters)).first()
+        if email:
+            filters.append(User.email == email)
+
+        if phone_number:
+            filters.append(User.phone_number == phone_number)
+
+        if filters:
+            existing_user = User.query.filter(or_(*filters)).first()
 
         if existing_user:
             existing_membership = Membership.query.filter_by(
                 user_id=existing_user.id,
-                chama_id=chama.id
+                chama_id=chama.id,
             ).first()
 
             if existing_membership and existing_membership.status in {
@@ -481,54 +487,59 @@ class ChamaInviteMemberResource(Resource):
             }:
                 return {"message": "This user already has a membership record in this chama."}, 400
 
-        existing_pending_invite = ChamaInvite.query.filter(
+        invite_query = ChamaInvite.query.filter(
             ChamaInvite.chama_id == chama.id,
             ChamaInvite.status == InviteStatus.PENDING,
-            or_(
-                ChamaInvite.email == email if email else False,
-                ChamaInvite.phone_number == phone_number if phone_number else False
+        )
+
+        contact_filters = []
+        if email:
+            contact_filters.append(ChamaInvite.email == email)
+        if phone_number:
+            contact_filters.append(ChamaInvite.phone_number == phone_number)
+
+        if contact_filters:
+            existing_pending_invite = invite_query.filter(or_(*contact_filters)).first()
+            if existing_pending_invite:
+                return {"message": "A pending invite already exists for this contact."}, 400
+
+        try:
+            invite = ChamaInvite(
+                chama_id=chama.id,
+                invited_user_id=existing_user.id if existing_user else None,
+                email=email or None,
+                phone_number=phone_number or None,
+                role_to_assign=role_to_assign,
+                status=InviteStatus.PENDING,
+                token=ChamaInvite.generate_token(),
+                expires_at=ChamaInvite.default_expiry(days=expires_in_days),
+                invited_by_user_id=current_user.id,
             )
-        ).first()
 
-        if existing_pending_invite:
-            return {"message": "A pending invite already exists for this contact."}, 400
+            db.session.add(invite)
+            db.session.commit()
 
-        invite = ChamaInvite(
-            chama_id=chama.id,
-            invited_user_id=existing_user.id if existing_user else None,
-            email=email if email else None,
-            phone_number=phone_number if phone_number else None,
-            role_to_assign=role_to_assign,
-            status=InviteStatus.PENDING,
-            token=ChamaInvite.generate_token(),
-            expires_at=ChamaInvite.default_expiry(days=expires_in_days),
-            invited_by_user_id=current_user.id,
-        )
+            audit_log(
+                action=AuditAction.INVITE_CREATED,
+                actor_user_id=current_user.id,
+                target_user_id=existing_user.id if existing_user else None,
+                chama_id=chama.id,
+                membership_id=actor_membership.id,
+                description="Chama invite created.",
+                new_values=invite_dict(invite),
+            )
 
-        db.session.add(invite)
-        db.session.commit()
+            return {
+                "message": "Invite created successfully.",
+                "invite": invite_dict(invite),
+            }, 201
 
-        audit_log(
-            action=AuditAction.INVITE_CREATED,
-            actor_user_id=current_user.id,
-            target_user_id=existing_user.id if existing_user else None,
-            chama_id=chama.id,
-            membership_id=actor_membership.id,
-            description="Chama invite created.",
-            new_values=invite_dict(invite),
-        )
-
-        return {
-            "message": "Invite created successfully.",
-            "invite": invite_dict(invite)
-        }, 201
+        except Exception as e:
+            db.session.rollback()
+            return {"message": f"Error creating invite: {str(e)}"}, 500
 
 
 class ChamaPendingInvitesResource(Resource):
-    """
-    GET /chamas/<int:chama_id>/invites
-    Only admin, treasurer, secretary can view invites
-    """
     @jwt_required()
     def get(self, chama_id):
         current_user = get_current_user()
@@ -551,15 +562,11 @@ class ChamaPendingInvitesResource(Resource):
         return {
             "message": "Chama invites retrieved successfully.",
             "count": len(invites),
-            "invites": [invite_dict(i) for i in invites]
+            "invites": [invite_dict(invite) for invite in invites],
         }, 200
 
 
 class ChamaRevokeInviteResource(Resource):
-    """
-    PATCH /chamas/<int:chama_id>/invites/<int:invite_id>/revoke
-    Only admin, treasurer, secretary can revoke invites
-    """
     @jwt_required()
     def patch(self, chama_id, invite_id):
         current_user = get_current_user()
@@ -596,16 +603,11 @@ class ChamaRevokeInviteResource(Resource):
 
         return {
             "message": "Invite revoked successfully.",
-            "invite": invite_dict(invite)
+            "invite": invite_dict(invite),
         }, 200
 
 
 class ChamaAddExistingMemberResource(Resource):
-    """
-    POST /chamas/<int:chama_id>/memberships
-    Controlled onboarding for an already registered platform user
-    Only admin, treasurer, secretary
-    """
     @jwt_required()
     def post(self, chama_id):
         current_user = get_current_user()
@@ -616,12 +618,9 @@ class ChamaAddExistingMemberResource(Resource):
         chama, actor_membership = result
 
         if not can_manage_onboarding(actor_membership):
-            return {
-                "message": "Only admin, treasurer, or secretary can onboard members."
-            }, 403
+            return {"message": "Only admin, treasurer, or secretary can onboard members."}, 403
 
         data = request.get_json() or {}
-
         user_id = data.get("user_id")
         role_value = (data.get("role") or "member").strip().lower()
 
@@ -641,60 +640,64 @@ class ChamaAddExistingMemberResource(Resource):
 
         existing_membership = Membership.query.filter_by(
             user_id=target_user.id,
-            chama_id=chama.id
+            chama_id=chama.id,
         ).first()
 
         if existing_membership:
             return {"message": "This user already has a membership record in this chama."}, 400
 
-        membership = Membership(
-            user_id=target_user.id,
-            chama_id=chama.id,
-            role=role,
-            status=MembershipStatus.ACTIVE,
-            joined_at=datetime.utcnow(),
-            invited_by_user_id=current_user.id,
-            approved_by_user_id=current_user.id,
-        )
+        try:
+            membership = Membership(
+                user_id=target_user.id,
+                chama_id=chama.id,
+                role=role,
+                status=MembershipStatus.ACTIVE,
+                joined_at=datetime.utcnow(),
+                invited_by_user_id=current_user.id,
+                approved_by_user_id=current_user.id,
+            )
 
-        db.session.add(membership)
-        db.session.commit()
+            db.session.add(membership)
+            db.session.commit()
 
-        audit_log(
-            action=AuditAction.MEMBERSHIP_CREATED,
-            actor_user_id=current_user.id,
-            target_user_id=target_user.id,
-            chama_id=chama.id,
-            membership_id=membership.id,
-            description="Existing platform user added to chama.",
-            new_values=membership_dict(membership),
-        )
+            audit_log(
+                action=AuditAction.MEMBERSHIP_CREATED,
+                actor_user_id=current_user.id,
+                target_user_id=target_user.id,
+                chama_id=chama.id,
+                membership_id=membership.id,
+                description="Existing platform user added to chama.",
+                new_values=membership_dict(membership),
+            )
 
-        return {
-            "message": "Member added successfully.",
-            "membership": membership_dict(membership)
-        }, 201
+            return {
+                "message": "Member added successfully.",
+                "membership": membership_dict(membership),
+            }, 201
+
+        except Exception as e:
+            db.session.rollback()
+            return {"message": f"Error adding member: {str(e)}"}, 500
 
 
 class ChamaMembershipRoleUpdateResource(Resource):
-    """
-    PATCH /chamas/<int:chama_id>/memberships/<int:membership_id>/role
-    Only admin can change roles
-    """
     @jwt_required()
     def patch(self, chama_id, membership_id):
         current_user = get_current_user()
         result, error = require_chama_roles(
             current_user,
             chama_id,
-            {MembershipRole.ADMIN}
+            {MembershipRole.ADMIN},
         )
         if error:
             return error
 
         chama, actor_membership = result
-        membership = Membership.query.filter_by(id=membership_id, chama_id=chama.id).first()
 
+        membership = Membership.query.filter_by(
+            id=membership_id,
+            chama_id=chama.id,
+        ).first()
         if not membership:
             return {"message": "Membership not found."}, 404
 
@@ -722,15 +725,11 @@ class ChamaMembershipRoleUpdateResource(Resource):
 
         return {
             "message": "Membership role updated successfully.",
-            "membership": membership_dict(membership)
+            "membership": membership_dict(membership),
         }, 200
 
 
 class ChamaSuspendMembershipResource(Resource):
-    """
-    PATCH /chamas/<int:chama_id>/memberships/<int:membership_id>/suspend
-    Only admin, treasurer, secretary
-    """
     @jwt_required()
     def patch(self, chama_id, membership_id):
         current_user = get_current_user()
@@ -741,14 +740,17 @@ class ChamaSuspendMembershipResource(Resource):
                 MembershipRole.ADMIN,
                 MembershipRole.TREASURER,
                 MembershipRole.SECRETARY,
-            }
+            },
         )
         if error:
             return error
 
         chama, actor_membership = result
-        membership = Membership.query.filter_by(id=membership_id, chama_id=chama.id).first()
 
+        membership = Membership.query.filter_by(
+            id=membership_id,
+            chama_id=chama.id,
+        ).first()
         if not membership:
             return {"message": "Membership not found."}, 404
 
@@ -775,15 +777,11 @@ class ChamaSuspendMembershipResource(Resource):
 
         return {
             "message": "Membership suspended successfully.",
-            "membership": membership_dict(membership)
+            "membership": membership_dict(membership),
         }, 200
 
 
 class ChamaRemoveMembershipResource(Resource):
-    """
-    PATCH /chamas/<int:chama_id>/memberships/<int:membership_id>/remove
-    Only admin, treasurer, secretary
-    """
     @jwt_required()
     def patch(self, chama_id, membership_id):
         current_user = get_current_user()
@@ -794,14 +792,17 @@ class ChamaRemoveMembershipResource(Resource):
                 MembershipRole.ADMIN,
                 MembershipRole.TREASURER,
                 MembershipRole.SECRETARY,
-            }
+            },
         )
         if error:
             return error
 
         chama, actor_membership = result
-        membership = Membership.query.filter_by(id=membership_id, chama_id=chama.id).first()
 
+        membership = Membership.query.filter_by(
+            id=membership_id,
+            chama_id=chama.id,
+        ).first()
         if not membership:
             return {"message": "Membership not found."}, 404
 
@@ -828,5 +829,5 @@ class ChamaRemoveMembershipResource(Resource):
 
         return {
             "message": "Membership removed successfully.",
-            "membership": membership_dict(membership)
+            "membership": membership_dict(membership),
         }, 200

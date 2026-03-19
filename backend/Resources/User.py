@@ -1,9 +1,15 @@
 from datetime import datetime
+
 from flask import request
 from flask_restful import Resource
-from flask_jwt_extended import jwt_required, get_jwt_identity, create_access_token, create_refresh_token
+from flask_jwt_extended import (
+    jwt_required,
+    get_jwt_identity,
+    create_access_token,
+    create_refresh_token,
+)
 from sqlalchemy import or_
-from app.extensions import db
+
 from models import (
     db,
     User,
@@ -24,11 +30,12 @@ def get_current_user():
     identity = get_jwt_identity()
     if not identity:
         return None
-    
-    try :
+
+    try:
         user_id = int(identity)
     except (ValueError, TypeError):
         return None
+
     return User.query.get(user_id)
 
 
@@ -67,13 +74,6 @@ def membership_dict(membership):
 
 
 def is_platform_admin(user):
-    """
-    Placeholder for admin backend access.
-    For now, replace this with your real platform admin logic.
-    Example later:
-    - separate PlatformAdmin table
-    - or User.is_staff boolean
-    """
     return user and user.username in ["admin", "superadmin"]
 
 
@@ -99,7 +99,6 @@ def audit_log(
             user_agent=request.headers.get("User-Agent"),
         )
     except Exception:
-        # avoid blocking main flow if audit fails
         pass
 
 
@@ -108,10 +107,6 @@ def audit_log(
 # =========================================================
 
 class CurrentUserResource(Resource):
-    """
-    GET /me
-    Return currently logged in user profile
-    """
     @jwt_required()
     def get(self):
         current_user = get_current_user()
@@ -128,10 +123,6 @@ class CurrentUserResource(Resource):
 
 
 class UserProfileUpdateResource(Resource):
-    """
-    PUT /me
-    Update own platform profile
-    """
     @jwt_required()
     def put(self):
         current_user = get_current_user()
@@ -142,7 +133,6 @@ class UserProfileUpdateResource(Resource):
             return {"message": "Inactive accounts cannot be updated."}, 403
 
         data = request.get_json() or {}
-
         old_values = user_basic_dict(current_user)
 
         username = data.get("username")
@@ -152,31 +142,34 @@ class UserProfileUpdateResource(Resource):
         last_name = data.get("last_name")
 
         if username:
+            username = username.strip()
             existing = User.query.filter(
                 User.username == username,
                 User.id != current_user.id
             ).first()
             if existing:
                 return {"message": "Username already in use."}, 400
-            current_user.username = username.strip()
+            current_user.username = username
 
         if email:
+            email = email.strip().lower()
             existing = User.query.filter(
                 User.email == email,
                 User.id != current_user.id
             ).first()
             if existing:
                 return {"message": "Email already in use."}, 400
-            current_user.email = email.strip().lower()
+            current_user.email = email
 
         if phone_number:
+            phone_number = phone_number.strip()
             existing = User.query.filter(
                 User.phone_number == phone_number,
                 User.id != current_user.id
             ).first()
             if existing:
                 return {"message": "Phone number already in use."}, 400
-            current_user.phone_number = phone_number.strip()
+            current_user.phone_number = phone_number
 
         if first_name is not None:
             current_user.first_name = first_name.strip() if first_name else None
@@ -202,10 +195,6 @@ class UserProfileUpdateResource(Resource):
 
 
 class ChangePasswordResource(Resource):
-    """
-    PUT /me/change-password
-    Change own password
-    """
     @jwt_required()
     def put(self):
         current_user = get_current_user()
@@ -249,10 +238,6 @@ class ChangePasswordResource(Resource):
 
 
 class MyChamasResource(Resource):
-    """
-    GET /my-chamas
-    Return all ACTIVE chamas for logged-in user
-    """
     @jwt_required()
     def get(self):
         current_user = get_current_user()
@@ -287,7 +272,8 @@ class MyChamasResource(Resource):
                     "status": membership.chama.status.value if membership.chama.status else None,
                     "currency": membership.chama.currency,
                     "contribution_frequency": membership.chama.contribution_frequency,
-                    "base_contribution_amount": float(membership.chama.base_contribution_amount) if membership.chama.base_contribution_amount is not None else None,
+                    "base_contribution_amount": float(membership.chama.base_contribution_amount)
+                    if membership.chama.base_contribution_amount is not None else None,
                 }
             })
 
@@ -299,13 +285,6 @@ class MyChamasResource(Resource):
 
 
 class UserMembershipsResource(Resource):
-    """
-    GET /users/<int:user_id>/memberships
-
-    Rules:
-    - a user can see their own memberships
-    - platform admin can see any user's memberships
-    """
     @jwt_required()
     def get(self, user_id):
         current_user = get_current_user()
@@ -336,10 +315,6 @@ class UserMembershipsResource(Resource):
 
 
 class UserDetailResource(Resource):
-    """
-    GET /users/<int:user_id>
-    Platform user detail
-    """
     @jwt_required()
     def get(self, user_id):
         current_user = get_current_user()
@@ -360,11 +335,6 @@ class UserDetailResource(Resource):
 
 
 class UserListResource(Resource):
-    """
-    GET /users
-    Platform admin backend only
-    Supports search and status filtering
-    """
     @jwt_required()
     def get(self):
         current_user = get_current_user()
@@ -390,13 +360,12 @@ class UserListResource(Resource):
                 )
             )
 
-        if status:
-            if status == "active":
-                query = query.filter(User.status == UserAccountStatus.ACTIVE)
-            elif status == "deleted":
-                query = query.filter(User.status == UserAccountStatus.DELETED)
-            elif status == "deactivated":
-                query = query.filter(User.status == UserAccountStatus.DEACTIVATED)
+        if status == "active":
+            query = query.filter(User.status == UserAccountStatus.ACTIVE)
+        elif status == "deleted":
+            query = query.filter(User.status == UserAccountStatus.DELETED)
+        elif status == "deactivated":
+            query = query.filter(User.status == UserAccountStatus.DEACTIVATED)
 
         users = query.order_by(User.created_at.desc()).all()
 
@@ -408,11 +377,6 @@ class UserListResource(Resource):
 
 
 class SoftDeleteUserResource(Resource):
-    """
-    DELETE /users/<int:user_id>/soft-delete
-
-    Recoverable delete for admin backend
-    """
     @jwt_required()
     def delete(self, user_id):
         current_user = get_current_user()
@@ -434,7 +398,6 @@ class SoftDeleteUserResource(Resource):
 
         data = request.get_json(silent=True) or {}
         reason = data.get("reason")
-
         old_values = user_basic_dict(target_user)
 
         target_user.soft_delete(by_user_id=current_user.id, reason=reason)
@@ -456,11 +419,6 @@ class SoftDeleteUserResource(Resource):
 
 
 class RestoreUserResource(Resource):
-    """
-    PATCH /users/<int:user_id>/restore
-
-    Restore soft deleted user
-    """
     @jwt_required()
     def patch(self, user_id):
         current_user = get_current_user()
@@ -501,11 +459,6 @@ class RestoreUserResource(Resource):
 
 
 class DeactivateUserResource(Resource):
-    """
-    PATCH /users/<int:user_id>/deactivate
-
-    Final irreversible shutdown
-    """
     @jwt_required()
     def patch(self, user_id):
         current_user = get_current_user()
@@ -524,7 +477,6 @@ class DeactivateUserResource(Resource):
 
         data = request.get_json(silent=True) or {}
         reason = data.get("reason")
-
         old_values = user_basic_dict(target_user)
 
         target_user.deactivate(by_user_id=current_user.id, reason=reason)
@@ -546,16 +498,13 @@ class DeactivateUserResource(Resource):
 
 
 class SignUpResource(Resource):
-    """
-    POST /auth/signup
-    Create a new user account
-    """
-    def post(self):
+    @staticmethod
+    def post():
         data = request.get_json() or {}
 
-        # Validate required fields
         username = data.get("username", "").strip()
         email = data.get("email", "").strip().lower()
+        phone_number = data.get("phone_number", "").strip()
         password = data.get("password", "")
         confirm_password = data.get("confirm_password", "")
         first_name = data.get("first_name", "").strip()
@@ -575,23 +524,25 @@ class SignUpResource(Resource):
         if password != confirm_password:
             return {"message": "Password and confirm password do not match."}, 400
 
-        # Check if username already exists
         if User.query.filter_by(username=username).first():
             return {"message": "Username already in use."}, 400
 
-        # Check if email already exists
         if User.query.filter_by(email=email).first():
             return {"message": "Email already registered."}, 400
 
-        # Create new user
+        if phone_number and User.query.filter_by(phone_number=phone_number).first():
+            return {"message": "Phone number already registered."}, 400
+
         try:
             user = User(
                 username=username,
                 email=email,
+                phone_number=phone_number or None,
                 first_name=first_name or None,
-                last_name=last_name or None
+                last_name=last_name or None,
             )
             user.set_password(password)
+
             db.session.add(user)
             db.session.commit()
 
@@ -602,9 +553,8 @@ class SignUpResource(Resource):
                 description="New user registered."
             )
 
-            # Generate JWT tokens
-            access_token = create_access_token(identity=user.id)
-            refresh_token = create_refresh_token(identity=user.id)
+            access_token = create_access_token(identity=str(user.id))
+            refresh_token = create_refresh_token(identity=str(user.id))
 
             return {
                 "message": "Account created successfully.",
@@ -619,23 +569,16 @@ class SignUpResource(Resource):
 
 
 class LoginResource(Resource):
-    """
-    POST /auth/login
-    Authenticate user and return JWT tokens
-    """
-    def post(self):
+    @staticmethod
+    def post():
         data = request.get_json() or {}
 
-        # Accept either username or email
         username_or_email = data.get("username_or_email", "").strip().lower()
         password = data.get("password", "")
 
         if not username_or_email or not password:
-            return {
-                "message": "username_or_email and password are required."
-            }, 400
+            return {"message": "username_or_email and password are required."}, 400
 
-        # Find user by username or email
         user = User.query.filter(
             or_(
                 User.username == username_or_email,
@@ -643,27 +586,20 @@ class LoginResource(Resource):
             )
         ).first()
 
-        if not user:
+        if not user or not user.check_password(password):
             return {"message": "Invalid credentials."}, 401
 
-        # Check password
-        if not user.check_password(password):
-            return {"message": "Invalid credentials."}, 401
-
-        # Check account status
         if user.is_deactivated:
             return {"message": "This account has been deactivated."}, 403
 
         if user.is_deleted:
             return {"message": "This account has been deleted."}, 403
 
-        # Update last login time
         user.last_login_at = datetime.utcnow()
         db.session.commit()
 
-        # Generate JWT tokens
-        access_token = create_access_token(identity=user.id)
-        refresh_token = create_refresh_token(identity=user.id)
+        access_token = create_access_token(identity=str(user.id))
+        refresh_token = create_refresh_token(identity=str(user.id))
 
         audit_log(
             action=AuditAction.USER_UPDATED,
@@ -681,17 +617,18 @@ class LoginResource(Resource):
 
 
 class RefreshTokenResource(Resource):
-    """
-    POST /auth/refresh
-    Refresh access token using refresh token
-    """
     @jwt_required(refresh=True)
     def post(self):
         identity = get_jwt_identity()
         if not identity:
             return {"message": "Invalid refresh token."}, 401
 
-        user = User.query.get(identity)
+        try:
+            user_id = int(identity)
+        except (ValueError, TypeError):
+            return {"message": "Invalid token identity."}, 401
+
+        user = User.query.get(user_id)
         if not user:
             return {"message": "User not found."}, 404
 
@@ -701,11 +638,9 @@ class RefreshTokenResource(Resource):
         if user.is_deleted:
             return {"message": "This account has been deleted."}, 403
 
-        # Generate new access token
-        access_token = create_access_token(identity=user.id)
+        access_token = create_access_token(identity=str(user.id))
 
         return {
             "message": "Token refreshed successfully.",
             "access_token": access_token
         }, 200
-    
