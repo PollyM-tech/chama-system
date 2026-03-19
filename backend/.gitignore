@@ -44,3 +44,4 @@ Thumbs.db
 # Migrations
 migrations/__pycache__/
 migrations/versions/__pycache__/
+Pipfile
