@@ -38,6 +38,14 @@ from Resources.Chama import (
     ChamaRemoveMembershipResource,
 )
 
+from Resources.Contribution import (
+    ContributionListCreateResource,
+    MyContributionHistoryResource,
+    MemberContributionHistoryResource,
+    ContributionDetailResource,
+    ContributionSummaryResource,
+)
+
 load_dotenv()
 
 app = Flask(__name__)
@@ -87,6 +95,13 @@ api.add_resource(ChamaAddExistingMemberResource, "/api/chamas/<int:chama_id>/mem
 api.add_resource(ChamaMembershipRoleUpdateResource, "/api/chamas/<int:chama_id>/memberships/<int:membership_id>/role")
 api.add_resource(ChamaSuspendMembershipResource, "/api/chamas/<int:chama_id>/memberships/<int:membership_id>/suspend")
 api.add_resource(ChamaRemoveMembershipResource, "/api/chamas/<int:chama_id>/memberships/<int:membership_id>/remove")
+
+# CONTRIBUTION ROUTES
+api.add_resource(ContributionListCreateResource,"/api/chamas/<int:chama_id>/contributions")
+api.add_resource(ContributionDetailResource,"/api/chamas/<int:chama_id>/contributions/<int:contribution_id>")
+api.add_resource(MyContributionHistoryResource,"/api/chamas/<int:chama_id>/my-contributions")
+api.add_resource(MemberContributionHistoryResource,"/api/chamas/<int:chama_id>/members/<int:user_id>/contributions")
+api.add_resource(ContributionSummaryResource,"/api/chamas/<int:chama_id>/contributions/summary")
 
 @app.route("/")
 def home():
