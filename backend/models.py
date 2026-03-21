@@ -4,6 +4,9 @@ import secrets
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import UniqueConstraint, Index
 from werkzeug.security import generate_password_hash, check_password_hash
+from decimal import Decimal, ROUND_HALF_UP
+from calendar import monthrange
+
 
 db = SQLAlchemy()
 
@@ -795,6 +798,15 @@ class LoanRepayment(db.Model, TimestampMixin):
     def __repr__(self):
         return f"<LoanRepayment {self.id} loan={self.loan_id} amount={self.amount}>"
 
+class LoanInterestTYpe(Enum):
+    FLAT = "flat"
+    REDUCING_BALANCE = "reducing_balance"
+
+class RepeatFrequency(Enum):
+    DAILY = "daily"
+    WEEKLY = "weekly"
+    MONTHLY = "monthly"
+    YEARLY = "yearly"
 
 # =========================================================
 # VOTING MODELS

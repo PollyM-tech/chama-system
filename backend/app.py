@@ -46,6 +46,16 @@ from Resources.Contribution import (
     ContributionSummaryResource,
 )
 
+from resources.loan import (
+    ChamaLoansResource,
+    MyLoansResource,
+    LoanDetailResource,
+    LoanApprovalResource,
+    LoanRejectionResource,
+    LoanDisbursementResource,
+    LoanRepaymentsResource,
+)
+
 load_dotenv()
 
 app = Flask(__name__)
@@ -102,6 +112,16 @@ api.add_resource(ContributionDetailResource,"/api/chamas/<int:chama_id>/contribu
 api.add_resource(MyContributionHistoryResource,"/api/chamas/<int:chama_id>/my-contributions")
 api.add_resource(MemberContributionHistoryResource,"/api/chamas/<int:chama_id>/members/<int:user_id>/contributions")
 api.add_resource(ContributionSummaryResource,"/api/chamas/<int:chama_id>/contributions/summary")
+
+#loan routes
+def register_loan_routes(api):
+    api.add_resource(ChamaLoansResource, "/api/chamas/<int:chama_id>/loans")
+    api.add_resource(MyLoansResource, "/api/chamas/<int:chama_id>/my-loans")
+    api.add_resource(LoanDetailResource, "/api/chamas/<int:chama_id>/loans/<int:loan_id>")
+    api.add_resource(LoanApprovalResource, "/api/chamas/<int:chama_id>/loans/<int:loan_id>/approve")
+    api.add_resource(LoanRejectionResource, "/api/chamas/<int:chama_id>/loans/<int:loan_id>/reject")
+    api.add_resource(LoanDisbursementResource, "/api/chamas/<int:chama_id>/loans/<int:loan_id>/disburse")
+    api.add_resource(LoanRepaymentsResource, "/api/chamas/<int:chama_id>/loans/<int:loan_id>/repayments")
 
 @app.route("/")
 def home():
