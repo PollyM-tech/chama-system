@@ -130,6 +130,12 @@ def normalize_loan_status(value):
     return None
 
 
+def can_view_loan(current_user, membership, loan):
+    if membership.role in {MembershipRole.ADMIN, MembershipRole.TREASURER}:
+        return True
+    return loan.borrower_user_id == current_user.id
+
+
 def audit_log(
     action,
     actor_user_id=None,
@@ -208,11 +214,6 @@ def repayment_dict(repayment):
 # =========================================================
 
 class ChamaLoansResource(Resource):
-    """
-    GET  /chamas/<int:chama_id>/loans
-    POST /chamas/<int:chama_id>/loans
-    """
-
     @jwt_required()
     def get(self, chama_id):
         current_user = get_current_user()
@@ -222,23 +223,24 @@ class ChamaLoansResource(Resource):
 
         chama, membership = result
 
-        query = (
-            Loan.query
-            .filter(Loan.chama_id == chama.id)
-            .order_by(Loan.created_at.desc(), Loan.id.desc())
-        )
+        query = Loan.query.filter(Loan.chama_id == chama.id)
 
         borrower_user_id = request.args.get("borrower_user_id", type=int)
         status = request.args.get("status", type=str)
 
-        if borrower_user_id:
-            target_membership = Membership.query.filter_by(
-                user_id=borrower_user_id,
-                chama_id=chama.id,
-            ).first()
-            if not target_membership:
-                return {"message": "The requested user does not belong to this chama."}, 400
-            query = query.filter(Loan.borrower_user_id == borrower_user_id)
+        is_finance_user = membership.role in {MembershipRole.ADMIN, MembershipRole.TREASURER}
+
+        if is_finance_user:
+            if borrower_user_id:
+                target_membership = Membership.query.filter_by(
+                    user_id=borrower_user_id,
+                    chama_id=chama.id,
+                ).first()
+                if not target_membership:
+                    return {"message": "The requested user does not belong to this chama."}, 400
+                query = query.filter(Loan.borrower_user_id == borrower_user_id)
+        else:
+            query = query.filter(Loan.borrower_user_id == current_user.id)
 
         if status:
             normalized_status = normalize_loan_status(status)
@@ -246,7 +248,7 @@ class ChamaLoansResource(Resource):
                 return {"message": "Invalid loan status."}, 400
             query = query.filter(Loan.status == normalized_status)
 
-        loans = query.all()
+        loans = query.order_by(Loan.created_at.desc(), Loan.id.desc()).all()
 
         return {
             "message": "Loans retrieved successfully.",
@@ -256,9 +258,6 @@ class ChamaLoansResource(Resource):
 
     @jwt_required()
     def post(self, chama_id):
-        """
-        Active member applies for a loan in their own chama.
-        """
         current_user = get_current_user()
         result, error = require_chama_membership(current_user, chama_id)
         if error:
@@ -320,10 +319,6 @@ class ChamaLoansResource(Resource):
 
 
 class MyLoansResource(Resource):
-    """
-    GET /chamas/<int:chama_id>/my-loans
-    """
-
     @jwt_required()
     def get(self, chama_id):
         current_user = get_current_user()
@@ -348,12 +343,6 @@ class MyLoansResource(Resource):
 
 
 class LoanDetailResource(Resource):
-    """
-    GET    /chamas/<int:chama_id>/loans/<int:loan_id>
-    PATCH  /chamas/<int:chama_id>/loans/<int:loan_id>
-    DELETE /chamas/<int:chama_id>/loans/<int:loan_id>
-    """
-
     @jwt_required()
     def get(self, chama_id, loan_id):
         current_user = get_current_user()
@@ -362,10 +351,13 @@ class LoanDetailResource(Resource):
             return error
 
         chama, membership = result
-
         loan = Loan.query.filter_by(id=loan_id, chama_id=chama.id).first()
+
         if not loan:
             return {"message": "Loan not found."}, 404
+
+        if not can_view_loan(current_user, membership, loan):
+            return {"message": "You are not allowed to view this loan."}, 403
 
         return {
             "message": "Loan retrieved successfully.",
@@ -374,9 +366,6 @@ class LoanDetailResource(Resource):
 
     @jwt_required()
     def patch(self, chama_id, loan_id):
-        """
-        Limited admin/treasurer update for pending/approved loans.
-        """
         current_user = get_current_user()
         result, error = require_finance_roles(current_user, chama_id)
         if error:
@@ -443,9 +432,6 @@ class LoanDetailResource(Resource):
 
     @jwt_required()
     def delete(self, chama_id, loan_id):
-        """
-        Only pending loans can be deleted by admin/treasurer.
-        """
         current_user = get_current_user()
         result, error = require_finance_roles(current_user, chama_id)
         if error:
@@ -472,6 +458,7 @@ class LoanDetailResource(Resource):
                 actor_user_id=current_user.id,
                 target_user_id=borrower_user_id,
                 chama_id=chama.id,
+                loan_id=loan_id,
                 membership_id=actor_membership.id,
                 description="Pending loan deleted.",
                 old_values=old_values,
@@ -487,10 +474,6 @@ class LoanDetailResource(Resource):
 
 
 class LoanApprovalResource(Resource):
-    """
-    PATCH /chamas/<int:chama_id>/loans/<int:loan_id>/approve
-    """
-
     @jwt_required()
     def patch(self, chama_id, loan_id):
         current_user = get_current_user()
@@ -541,10 +524,6 @@ class LoanApprovalResource(Resource):
 
 
 class LoanRejectionResource(Resource):
-    """
-    PATCH /chamas/<int:chama_id>/loans/<int:loan_id>/reject
-    """
-
     @jwt_required()
     def patch(self, chama_id, loan_id):
         current_user = get_current_user()
@@ -563,12 +542,14 @@ class LoanRejectionResource(Resource):
 
         data = request.get_json() or {}
         reason = data.get("reason")
-
         old_values = loan_dict(loan)
 
         loan.status = LoanStatus.REJECTED
         loan.rejected_by_user_id = current_user.id
         loan.rejection_reason = reason
+        loan.approved_at = None
+        loan.approved_by_user_id = None
+        loan.disbursed_at = None
 
         try:
             db.session.commit()
@@ -596,10 +577,6 @@ class LoanRejectionResource(Resource):
 
 
 class LoanDisbursementResource(Resource):
-    """
-    PATCH /chamas/<int:chama_id>/loans/<int:loan_id>/disburse
-    """
-
     @jwt_required()
     def patch(self, chama_id, loan_id):
         current_user = get_current_user()
@@ -615,6 +592,14 @@ class LoanDisbursementResource(Resource):
 
         if loan.status != LoanStatus.APPROVED:
             return {"message": "Only approved loans can be disbursed."}, 400
+
+        if loan.amount_repaid > 0:
+            return {
+                "message": "Cannot disburse a loan that already has recorded repayments."
+            }, 400
+
+        if loan.disbursed_at is not None:
+            return {"message": "Loan has already been disbursed."}, 400
 
         old_values = loan_dict(loan)
 
@@ -647,11 +632,6 @@ class LoanDisbursementResource(Resource):
 
 
 class LoanRepaymentsResource(Resource):
-    """
-    GET  /chamas/<int:chama_id>/loans/<int:loan_id>/repayments
-    POST /chamas/<int:chama_id>/loans/<int:loan_id>/repayments
-    """
-
     @jwt_required()
     def get(self, chama_id, loan_id):
         current_user = get_current_user()
@@ -664,6 +644,9 @@ class LoanRepaymentsResource(Resource):
 
         if not loan:
             return {"message": "Loan not found."}, 404
+
+        if not can_view_loan(current_user, membership, loan):
+            return {"message": "You are not allowed to view this loan repayments history."}, 403
 
         repayments = (
             LoanRepayment.query
@@ -692,12 +675,8 @@ class LoanRepaymentsResource(Resource):
         if not loan:
             return {"message": "Loan not found."}, 404
 
-        if loan.status not in {
-            LoanStatus.APPROVED,
-            LoanStatus.DISBURSED,
-            LoanStatus.PARTIALLY_REPAID,
-        }:
-            return {"message": "Repayment cannot be recorded for this loan status."}, 400
+        if loan.status not in {LoanStatus.DISBURSED, LoanStatus.PARTIALLY_REPAID}:
+            return {"message": "Repayment can only be recorded for disbursed or partially repaid loans."}, 400
 
         data = request.get_json() or {}
 
@@ -720,13 +699,13 @@ class LoanRepaymentsResource(Resource):
 
         try:
             repayment = LoanRepayment(
-                loan_id=loan.id,
-                amount=amount,
-                payment_date=payment_date,
-                recorded_by_user_id=current_user.id,
-                payment_method=payment_method,
-                reference_code=reference_code,
-                notes=notes,
+            loan=loan,
+            amount=amount,
+            payment_date=payment_date,
+            recorded_by_user_id=current_user.id,
+            payment_method=payment_method,
+            reference_code=reference_code,
+            notes=notes,
             )
 
             db.session.add(repayment)

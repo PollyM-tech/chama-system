@@ -756,11 +756,16 @@ class Loan(db.Model, TimestampMixin):
     def refresh_repayment_status(self):
         if self.status in {LoanStatus.REJECTED, LoanStatus.CANCELLED}:
             return
+        
+        if self.total_amount_due is None:
+            self.calculate_total_due()
 
         if self.balance <= 0 and self.total_amount_due is not None:
             self.status = LoanStatus.REPAID
         elif self.amount_repaid > 0:
             self.status = LoanStatus.PARTIALLY_REPAID
+        elif self.disbursed_at is not None:
+            self.status = LoanStatus.DISBURSED
 
     def __repr__(self):
         return f"<Loan {self.id} borrower={self.borrower_user_id} status={self.status.value}>"
@@ -798,11 +803,11 @@ class LoanRepayment(db.Model, TimestampMixin):
     def __repr__(self):
         return f"<LoanRepayment {self.id} loan={self.loan_id} amount={self.amount}>"
 
-class LoanInterestTYpe(Enum):
+class LoanInterestType(enum.Enum):
     FLAT = "flat"
     REDUCING_BALANCE = "reducing_balance"
 
-class RepeatFrequency(Enum):
+class RepeatFrequency(enum.Enum):
     DAILY = "daily"
     WEEKLY = "weekly"
     MONTHLY = "monthly"

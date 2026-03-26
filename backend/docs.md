@@ -35,3 +35,13 @@ user account status is separate from membership status
 onboarding can be invite-controlled
 sensitive actions can be audited
 helper methods are standardized for permission checks
+
+#loans
+non-finance users only see their own loans
+non-finance users cannot view another borrower’s loan detail
+repayments are blocked before disbursement
+approval works
+disbursement works
+repayment works after disbursement
+loan status can move to partially_repaid
+rejection cleanup was added in code

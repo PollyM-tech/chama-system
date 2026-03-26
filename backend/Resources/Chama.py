@@ -781,6 +781,57 @@ class ChamaSuspendMembershipResource(Resource):
         }, 200
 
 
+class ChamaRestoreMembershipResource(Resource):
+    @jwt_required()
+    def patch(self, chama_id, membership_id):
+        current_user = get_current_user()
+        result, error = require_chama_roles(
+            current_user,
+            chama_id,
+            {
+                MembershipRole.ADMIN,
+                MembershipRole.TREASURER,
+                MembershipRole.SECRETARY,
+            },
+        )
+        if error:
+            return error
+
+        chama, actor_membership = result
+
+        membership = Membership.query.filter_by(
+            id=membership_id,
+            chama_id=chama.id,
+        ).first()
+        if not membership:
+            return {"message": "Membership not found."}, 404
+
+        if membership.status != MembershipStatus.SUSPENDED:
+            return {"message": "Only suspended memberships can be restored."}, 400
+
+        old_values = membership_dict(membership)
+        membership.status = MembershipStatus.ACTIVE
+        membership.left_at = None
+        membership.joined_at = membership.joined_at or datetime.utcnow()
+
+        db.session.commit()
+
+        audit_log(
+            action=AuditAction.MEMBERSHIP_RESTORED,
+            actor_user_id=current_user.id,
+            target_user_id=membership.user_id,
+            chama_id=chama.id,
+            membership_id=membership.id,
+            description="Membership restored to active.",
+            old_values=old_values,
+            new_values=membership_dict(membership),
+        )
+
+        return {
+            "message": "Membership restored successfully.",
+            "membership": membership_dict(membership),
+        }, 200
+
 class ChamaRemoveMembershipResource(Resource):
     @jwt_required()
     def patch(self, chama_id, membership_id):

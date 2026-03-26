@@ -35,6 +35,7 @@ from Resources.Chama import (
     ChamaAddExistingMemberResource,
     ChamaMembershipRoleUpdateResource,
     ChamaSuspendMembershipResource,
+    ChamaRestoreMembershipResource,
     ChamaRemoveMembershipResource,
 )
 
@@ -46,7 +47,7 @@ from Resources.Contribution import (
     ContributionSummaryResource,
 )
 
-from resources.loan import (
+from Resources.Loan import (
     ChamaLoansResource,
     MyLoansResource,
     LoanDetailResource,
@@ -55,7 +56,6 @@ from resources.loan import (
     LoanDisbursementResource,
     LoanRepaymentsResource,
 )
-
 load_dotenv()
 
 app = Flask(__name__)
@@ -105,6 +105,7 @@ api.add_resource(ChamaAddExistingMemberResource, "/api/chamas/<int:chama_id>/mem
 api.add_resource(ChamaMembershipRoleUpdateResource, "/api/chamas/<int:chama_id>/memberships/<int:membership_id>/role")
 api.add_resource(ChamaSuspendMembershipResource, "/api/chamas/<int:chama_id>/memberships/<int:membership_id>/suspend")
 api.add_resource(ChamaRemoveMembershipResource, "/api/chamas/<int:chama_id>/memberships/<int:membership_id>/remove")
+api.add_resource(ChamaRestoreMembershipResource,"/api/chamas/<int:chama_id>/memberships/<int:membership_id>/restore" )
 
 # CONTRIBUTION ROUTES
 api.add_resource(ContributionListCreateResource,"/api/chamas/<int:chama_id>/contributions")
@@ -113,7 +114,7 @@ api.add_resource(MyContributionHistoryResource,"/api/chamas/<int:chama_id>/my-co
 api.add_resource(MemberContributionHistoryResource,"/api/chamas/<int:chama_id>/members/<int:user_id>/contributions")
 api.add_resource(ContributionSummaryResource,"/api/chamas/<int:chama_id>/contributions/summary")
 
-#loan routes
+#LOAN ROUTES
 def register_loan_routes(api):
     api.add_resource(ChamaLoansResource, "/api/chamas/<int:chama_id>/loans")
     api.add_resource(MyLoansResource, "/api/chamas/<int:chama_id>/my-loans")
@@ -122,6 +123,10 @@ def register_loan_routes(api):
     api.add_resource(LoanRejectionResource, "/api/chamas/<int:chama_id>/loans/<int:loan_id>/reject")
     api.add_resource(LoanDisbursementResource, "/api/chamas/<int:chama_id>/loans/<int:loan_id>/disburse")
     api.add_resource(LoanRepaymentsResource, "/api/chamas/<int:chama_id>/loans/<int:loan_id>/repayments")
+
+register_loan_routes(api)
+
+
 
 @app.route("/")
 def home():
