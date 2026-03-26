@@ -920,99 +920,159 @@ class Vote(db.Model, TimestampMixin):
     def __repr__(self):
         return f"<Vote poll={self.poll_id} user={self.user_id}>"
 
+# =========================================================
+# INVESTMENT ENUMS
+# =========================================================
+
+class InvestmentStatus(enum.Enum):
+    PROPOSED = "proposed"
+    ACTIVE = "active"
+    CLOSED = "closed"
+    CANCELLED = "cancelled"
+
+
+class InvestmentType(enum.Enum):
+    STOCKS = "stocks"
+    BONDS = "bonds"
+    MONEY_MARKET = "money_market"
+    SACCO = "sacco"
+    REAL_ESTATE = "real_estate"
+    BUSINESS = "business"
+    FIXED_DEPOSIT = "fixed_deposit"
+    OTHER = "other"
+
+
+class ReturnType(enum.Enum):
+    DIVIDEND = "dividend"
+    INTEREST = "interest"
+    PROFIT_SHARE = "profit_share"
+    CAPITAL_GAIN = "capital_gain"
+    OTHER = "other"
+
 
 # =========================================================
-# AUDIT MODEL
+# INVESTMENT MODELS
 # =========================================================
 
-class AuditLog(db.Model):
-    __tablename__ = "audit_logs"
+class Investment(db.Model, TimestampMixin):
+    __tablename__ = "investments"
     __table_args__ = (
-        Index("ix_audit_actor_created", "actor_user_id", "created_at"),
-        Index("ix_audit_chama_created", "chama_id", "created_at"),
-        Index("ix_audit_target_user_created", "target_user_id", "created_at"),
+        Index("ix_investment_chama_status", "chama_id", "status"),
+        Index("ix_investment_chama_type", "chama_id", "investment_type"),
     )
 
     id = db.Column(db.Integer, primary_key=True)
 
-    actor_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
-    target_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
-    chama_id = db.Column(db.Integer, db.ForeignKey("chamas.id"), nullable=True)
-
-    membership_id = db.Column(db.Integer, db.ForeignKey("memberships.id"), nullable=True)
-    loan_id = db.Column(db.Integer, db.ForeignKey("loans.id"), nullable=True)
-    contribution_id = db.Column(db.Integer, db.ForeignKey("contributions.id"), nullable=True)
-    poll_id = db.Column(db.Integer, db.ForeignKey("polls.id"), nullable=True)
-    vote_id = db.Column(db.Integer, db.ForeignKey("votes.id"), nullable=True)
-
-    action = db.Column(db.Enum(AuditAction), nullable=False, index=True)
+    chama_id = db.Column(db.Integer, db.ForeignKey("chamas.id"), nullable=False, index=True)
+    name = db.Column(db.String(150), nullable=False, index=True)
     description = db.Column(db.Text, nullable=True)
 
-    ip_address = db.Column(db.String(64), nullable=True)
-    user_agent = db.Column(db.Text, nullable=True)
-
-    old_values = db.Column(db.JSON, nullable=True)
-    new_values = db.Column(db.JSON, nullable=True)
-    metadata_json = db.Column(db.JSON, nullable=True)
-
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
-
-    actor = db.relationship(
-        "User",
-        foreign_keys=[actor_user_id],
-        back_populates="audit_logs_actor",
+    investment_type = db.Column(
+        db.Enum(InvestmentType),
+        default=InvestmentType.OTHER,
+        nullable=False,
+        index=True,
     )
 
-    target_user = db.relationship(
-        "User",
-        foreign_keys=[target_user_id],
-        back_populates="audit_logs_target_user",
+    status = db.Column(
+        db.Enum(InvestmentStatus),
+        default=InvestmentStatus.PROPOSED,
+        nullable=False,
+        index=True,
     )
 
-    chama = db.relationship("Chama", foreign_keys=[chama_id])
-    membership = db.relationship("Membership", foreign_keys=[membership_id])
-    loan = db.relationship("Loan", foreign_keys=[loan_id])
-    contribution = db.relationship("Contribution", foreign_keys=[contribution_id])
-    poll = db.relationship("Poll", foreign_keys=[poll_id])
-    vote = db.relationship("Vote", foreign_keys=[vote_id])
+    principal_amount = db.Column(db.Numeric(14, 2), nullable=False)
+    current_value = db.Column(db.Numeric(14, 2), nullable=True)
+    expected_return_rate = db.Column(db.Numeric(5, 2), nullable=True)
 
-    @staticmethod
-    def log(
-        action,
-        actor_user_id=None,
-        target_user_id=None,
-        chama_id=None,
-        description=None,
-        membership_id=None,
-        loan_id=None,
-        contribution_id=None,
-        poll_id=None,
-        vote_id=None,
-        old_values=None,
-        new_values=None,
-        metadata_json=None,
-        ip_address=None,
-        user_agent=None,
-    ):
-        entry = AuditLog(
-            action=action,
-            actor_user_id=actor_user_id,
-            target_user_id=target_user_id,
-            chama_id=chama_id,
-            description=description,
-            membership_id=membership_id,
-            loan_id=loan_id,
-            contribution_id=contribution_id,
-            poll_id=poll_id,
-            vote_id=vote_id,
-            old_values=old_values,
-            new_values=new_values,
-            metadata_json=metadata_json,
-            ip_address=ip_address,
-            user_agent=user_agent,
-        )
-        db.session.add(entry)
-        return entry
+    invested_at = db.Column(db.DateTime, nullable=True)
+    maturity_date = db.Column(db.DateTime, nullable=True)
+    closed_at = db.Column(db.DateTime, nullable=True)
+
+    created_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    approved_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+
+    chama = db.relationship(
+        "Chama",
+        backref=db.backref("investments", lazy=True),
+        foreign_keys=[chama_id],
+    )
+
+    created_by = db.relationship(
+        "User",
+        foreign_keys=[created_by_user_id],
+        backref=db.backref("created_investments", lazy=True),
+    )
+
+    approved_by = db.relationship(
+        "User",
+        foreign_keys=[approved_by_user_id],
+        backref=db.backref("approved_investments", lazy=True),
+    )
+
+    returns = db.relationship(
+        "InvestmentReturn",
+        back_populates="investment",
+        lazy=True,
+        cascade="all, delete-orphan",
+        foreign_keys="InvestmentReturn.investment_id",
+    )
+
+    @property
+    def total_returns(self):
+        return round(sum(float(r.amount or 0) for r in self.returns), 2)
+
+    @property
+    def profit_or_loss(self):
+        current = float(self.current_value or 0)
+        principal = float(self.principal_amount or 0)
+        returns_total = float(self.total_returns or 0)
+        return round((current + returns_total) - principal, 2)
+
+    @property
+    def roi_percentage(self):
+        principal = float(self.principal_amount or 0)
+        if principal <= 0:
+            return 0.0
+        return round((self.profit_or_loss / principal) * 100, 2)
 
     def __repr__(self):
-        return f"<AuditLog {self.id} {self.action.value}>"
+        return f"<Investment {self.id} {self.name} status={self.status.value}>"
+
+
+class InvestmentReturn(db.Model, TimestampMixin):
+    __tablename__ = "investment_returns"
+    __table_args__ = (
+        Index("ix_return_investment_date", "investment_id", "return_date"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    investment_id = db.Column(db.Integer, db.ForeignKey("investments.id"), nullable=False, index=True)
+    amount = db.Column(db.Numeric(14, 2), nullable=False)
+
+    return_type = db.Column(
+        db.Enum(ReturnType),
+        default=ReturnType.OTHER,
+        nullable=False,
+        index=True,
+    )
+
+    return_date = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    notes = db.Column(db.Text, nullable=True)
+    recorded_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+
+    investment = db.relationship(
+        "Investment",
+        back_populates="returns",
+        foreign_keys=[investment_id],
+    )
+
+    recorded_by = db.relationship(
+        "User",
+        foreign_keys=[recorded_by_user_id],
+        backref=db.backref("recorded_investment_returns", lazy=True),
+    )
+
+    def __repr__(self):
+        return f"<InvestmentReturn {self.id} investment={self.investment_id} amount={self.amount}>"

@@ -63,6 +63,14 @@ from Resources.Vote import (
     PollCloseResource,
     PollVoteResource,
 )
+from Resources.Investment import (
+    ChamaInvestmentsResource,
+    InvestmentDetailResource,
+    InvestmentApproveResource,
+    InvestmentCloseResource,
+    InvestmentReturnResource,
+    InvestmentSummaryResource,
+)
 
 load_dotenv()
 
@@ -140,7 +148,13 @@ api.add_resource(PollOpenResource, "/api/chamas/<int:chama_id>/polls/<int:poll_i
 api.add_resource(PollCloseResource, "/api/chamas/<int:chama_id>/polls/<int:poll_id>/close")
 api.add_resource(PollVoteResource, "/api/chamas/<int:chama_id>/polls/<int:poll_id>/vote")
 
-
+#INVESTMENT ROUTES
+api.add_resource(ChamaInvestmentsResource, "/api/chamas/<int:chama_id>/investments")
+api.add_resource(InvestmentDetailResource, "/api/chamas/<int:chama_id>/investments/<int:investment_id>")
+api.add_resource(InvestmentApproveResource, "/api/chamas/<int:chama_id>/investments/<int:investment_id>/approve")
+api.add_resource(InvestmentCloseResource, "/api/chamas/<int:chama_id>/investments/<int:investment_id>/close")
+api.add_resource(InvestmentReturnResource, "/api/chamas/<int:chama_id>/investments/<int:investment_id>/return")
+api.add_resource(InvestmentSummaryResource, "/api/chamas/<int:chama_id>/investments/summary")
 
 
 
