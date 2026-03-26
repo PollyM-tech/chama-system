@@ -45,3 +45,11 @@ disbursement works
 repayment works after disbursement
 loan status can move to partially_repaid
 rejection cleanup was added in code
+
+#votes
+only active chama members can view polls
+only ADMIN and SECRETARY can create, open, close, or delete polls
+only open polls can receive votes
+each user can vote once
+selected option must belong to the poll
+draft polls can be deleted, but open or closed polls should not be deleted casually

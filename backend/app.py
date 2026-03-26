@@ -56,6 +56,14 @@ from Resources.Loan import (
     LoanDisbursementResource,
     LoanRepaymentsResource,
 )
+from Resources.Vote import (
+    ChamaPollsResource,
+    PollDetailResource,
+    PollOpenResource,
+    PollCloseResource,
+    PollVoteResource,
+)
+
 load_dotenv()
 
 app = Flask(__name__)
@@ -123,8 +131,17 @@ def register_loan_routes(api):
     api.add_resource(LoanRejectionResource, "/api/chamas/<int:chama_id>/loans/<int:loan_id>/reject")
     api.add_resource(LoanDisbursementResource, "/api/chamas/<int:chama_id>/loans/<int:loan_id>/disburse")
     api.add_resource(LoanRepaymentsResource, "/api/chamas/<int:chama_id>/loans/<int:loan_id>/repayments")
-
 register_loan_routes(api)
+
+# VOTE ROUTES
+api.add_resource(ChamaPollsResource, "/api/chamas/<int:chama_id>/polls")
+api.add_resource(PollDetailResource, "/api/chamas/<int:chama_id>/polls/<int:poll_id>")
+api.add_resource(PollOpenResource, "/api/chamas/<int:chama_id>/polls/<int:poll_id>/open")
+api.add_resource(PollCloseResource, "/api/chamas/<int:chama_id>/polls/<int:poll_id>/close")
+api.add_resource(PollVoteResource, "/api/chamas/<int:chama_id>/polls/<int:poll_id>/vote")
+
+
+
 
 
 
