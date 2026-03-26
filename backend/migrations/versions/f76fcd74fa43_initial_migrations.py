@@ -1,8 +1,8 @@
-"""initial migration
+"""initial migrations
 
-Revision ID: b686f4334e91
+Revision ID: f76fcd74fa43
 Revises: 
-Create Date: 2026-03-19 13:03:28.656924
+Create Date: 2026-03-26 17:38:36.228378
 
 """
 from alembic import op
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = 'b686f4334e91'
+revision = 'f76fcd74fa43'
 down_revision = None
 branch_labels = None
 depends_on = None
@@ -122,6 +122,36 @@ def upgrade():
         batch_op.create_index(batch_op.f('ix_contributions_reference_code'), ['reference_code'], unique=False)
         batch_op.create_index(batch_op.f('ix_contributions_user_id'), ['user_id'], unique=False)
 
+    op.create_table('investments',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('chama_id', sa.Integer(), nullable=False),
+    sa.Column('name', sa.String(length=150), nullable=False),
+    sa.Column('description', sa.Text(), nullable=True),
+    sa.Column('investment_type', sa.Enum('STOCKS', 'BONDS', 'MONEY_MARKET', 'SACCO', 'REAL_ESTATE', 'BUSINESS', 'FIXED_DEPOSIT', 'OTHER', name='investmenttype'), nullable=False),
+    sa.Column('status', sa.Enum('PROPOSED', 'ACTIVE', 'CLOSED', 'CANCELLED', name='investmentstatus'), nullable=False),
+    sa.Column('principal_amount', sa.Numeric(precision=14, scale=2), nullable=False),
+    sa.Column('current_value', sa.Numeric(precision=14, scale=2), nullable=True),
+    sa.Column('expected_return_rate', sa.Numeric(precision=5, scale=2), nullable=True),
+    sa.Column('invested_at', sa.DateTime(), nullable=True),
+    sa.Column('maturity_date', sa.DateTime(), nullable=True),
+    sa.Column('closed_at', sa.DateTime(), nullable=True),
+    sa.Column('created_by_user_id', sa.Integer(), nullable=False),
+    sa.Column('approved_by_user_id', sa.Integer(), nullable=True),
+    sa.Column('created_at', sa.DateTime(), nullable=False),
+    sa.Column('updated_at', sa.DateTime(), nullable=False),
+    sa.ForeignKeyConstraint(['approved_by_user_id'], ['users.id'], ),
+    sa.ForeignKeyConstraint(['chama_id'], ['chamas.id'], ),
+    sa.ForeignKeyConstraint(['created_by_user_id'], ['users.id'], ),
+    sa.PrimaryKeyConstraint('id')
+    )
+    with op.batch_alter_table('investments', schema=None) as batch_op:
+        batch_op.create_index('ix_investment_chama_status', ['chama_id', 'status'], unique=False)
+        batch_op.create_index('ix_investment_chama_type', ['chama_id', 'investment_type'], unique=False)
+        batch_op.create_index(batch_op.f('ix_investments_chama_id'), ['chama_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_investments_investment_type'), ['investment_type'], unique=False)
+        batch_op.create_index(batch_op.f('ix_investments_name'), ['name'], unique=False)
+        batch_op.create_index(batch_op.f('ix_investments_status'), ['status'], unique=False)
+
     op.create_table('loans',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('chama_id', sa.Integer(), nullable=False),
@@ -198,6 +228,56 @@ def upgrade():
         batch_op.create_index(batch_op.f('ix_polls_chama_id'), ['chama_id'], unique=False)
         batch_op.create_index(batch_op.f('ix_polls_status'), ['status'], unique=False)
 
+    op.create_table('audit_logs',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('action', sa.Enum('USER_CREATED', 'USER_UPDATED', 'USER_SOFT_DELETED', 'USER_RESTORED', 'USER_DEACTIVATED', 'CHAMA_CREATED', 'CHAMA_UPDATED', 'MEMBERSHIP_CREATED', 'MEMBERSHIP_UPDATED', 'MEMBERSHIP_SUSPENDED', 'MEMBERSHIP_REMOVED', 'MEMBERSHIP_RESTORED', 'INVITE_CREATED', 'INVITE_ACCEPTED', 'INVITE_REVOKED', 'CONTRIBUTION_RECORDED', 'CONTRIBUTION_UPDATED', 'CONTRIBUTION_DELETED', 'LOAN_APPLIED', 'LOAN_APPROVED', 'LOAN_REJECTED', 'LOAN_DISBURSED', 'LOAN_UPDATED', 'LOAN_DELETED', 'LOAN_REPAYMENT_RECORDED', 'POLL_CREATED', 'POLL_UPDATED', 'POLL_DELETED', 'VOTE_CAST', 'INVESTMENT_CREATED', 'INVESTMENT_UPDATED', 'INVESTMENT_APPROVED', 'INVESTMENT_CLOSED', 'INVESTMENT_CANCELLED', 'INVESTMENT_RETURN_RECORDED', 'INVESTMENT_DELETED', name='auditaction'), nullable=False),
+    sa.Column('actor_user_id', sa.Integer(), nullable=True),
+    sa.Column('target_user_id', sa.Integer(), nullable=True),
+    sa.Column('chama_id', sa.Integer(), nullable=True),
+    sa.Column('loan_id', sa.Integer(), nullable=True),
+    sa.Column('membership_id', sa.Integer(), nullable=True),
+    sa.Column('description', sa.Text(), nullable=True),
+    sa.Column('old_values', sa.JSON(), nullable=True),
+    sa.Column('new_values', sa.JSON(), nullable=True),
+    sa.Column('metadata_json', sa.JSON(), nullable=True),
+    sa.Column('ip_address', sa.String(length=64), nullable=True),
+    sa.Column('user_agent', sa.Text(), nullable=True),
+    sa.Column('created_at', sa.DateTime(), nullable=False),
+    sa.Column('updated_at', sa.DateTime(), nullable=False),
+    sa.ForeignKeyConstraint(['actor_user_id'], ['users.id'], ),
+    sa.ForeignKeyConstraint(['chama_id'], ['chamas.id'], ),
+    sa.ForeignKeyConstraint(['loan_id'], ['loans.id'], ),
+    sa.ForeignKeyConstraint(['membership_id'], ['memberships.id'], ),
+    sa.ForeignKeyConstraint(['target_user_id'], ['users.id'], ),
+    sa.PrimaryKeyConstraint('id')
+    )
+    with op.batch_alter_table('audit_logs', schema=None) as batch_op:
+        batch_op.create_index('ix_audit_logs_action', ['action'], unique=False)
+        batch_op.create_index('ix_audit_logs_actor_user_id', ['actor_user_id'], unique=False)
+        batch_op.create_index('ix_audit_logs_chama_id', ['chama_id'], unique=False)
+        batch_op.create_index('ix_audit_logs_loan_id', ['loan_id'], unique=False)
+        batch_op.create_index('ix_audit_logs_membership_id', ['membership_id'], unique=False)
+        batch_op.create_index('ix_audit_logs_target_user_id', ['target_user_id'], unique=False)
+
+    op.create_table('investment_returns',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('investment_id', sa.Integer(), nullable=False),
+    sa.Column('amount', sa.Numeric(precision=14, scale=2), nullable=False),
+    sa.Column('return_type', sa.Enum('DIVIDEND', 'INTEREST', 'PROFIT_SHARE', 'CAPITAL_GAIN', 'OTHER', name='returntype'), nullable=False),
+    sa.Column('return_date', sa.DateTime(), nullable=False),
+    sa.Column('notes', sa.Text(), nullable=True),
+    sa.Column('recorded_by_user_id', sa.Integer(), nullable=False),
+    sa.Column('created_at', sa.DateTime(), nullable=False),
+    sa.Column('updated_at', sa.DateTime(), nullable=False),
+    sa.ForeignKeyConstraint(['investment_id'], ['investments.id'], ),
+    sa.ForeignKeyConstraint(['recorded_by_user_id'], ['users.id'], ),
+    sa.PrimaryKeyConstraint('id')
+    )
+    with op.batch_alter_table('investment_returns', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_investment_returns_investment_id'), ['investment_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_investment_returns_return_type'), ['return_type'], unique=False)
+        batch_op.create_index('ix_return_investment_date', ['investment_id', 'return_date'], unique=False)
+
     op.create_table('loan_repayments',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('loan_id', sa.Integer(), nullable=False),
@@ -248,54 +328,11 @@ def upgrade():
         batch_op.create_index(batch_op.f('ix_votes_poll_id'), ['poll_id'], unique=False)
         batch_op.create_index(batch_op.f('ix_votes_user_id'), ['user_id'], unique=False)
 
-    op.create_table('audit_logs',
-    sa.Column('id', sa.Integer(), nullable=False),
-    sa.Column('actor_user_id', sa.Integer(), nullable=True),
-    sa.Column('target_user_id', sa.Integer(), nullable=True),
-    sa.Column('chama_id', sa.Integer(), nullable=True),
-    sa.Column('membership_id', sa.Integer(), nullable=True),
-    sa.Column('loan_id', sa.Integer(), nullable=True),
-    sa.Column('contribution_id', sa.Integer(), nullable=True),
-    sa.Column('poll_id', sa.Integer(), nullable=True),
-    sa.Column('vote_id', sa.Integer(), nullable=True),
-    sa.Column('action', sa.Enum('USER_CREATED', 'USER_UPDATED', 'USER_SOFT_DELETED', 'USER_RESTORED', 'USER_DEACTIVATED', 'CHAMA_CREATED', 'CHAMA_UPDATED', 'MEMBERSHIP_CREATED', 'MEMBERSHIP_UPDATED', 'MEMBERSHIP_SUSPENDED', 'MEMBERSHIP_REMOVED', 'MEMBERSHIP_RESTORED', 'INVITE_CREATED', 'INVITE_ACCEPTED', 'INVITE_REVOKED', 'CONTRIBUTION_RECORDED', 'CONTRIBUTION_UPDATED', 'CONTRIBUTION_DELETED', 'LOAN_APPLIED', 'LOAN_APPROVED', 'LOAN_REJECTED', 'LOAN_DISBURSED', 'LOAN_UPDATED', 'LOAN_DELETED', 'LOAN_REPAYMENT_RECORDED', 'POLL_CREATED', 'POLL_UPDATED', 'POLL_DELETED', 'VOTE_CAST', name='auditaction'), nullable=False),
-    sa.Column('description', sa.Text(), nullable=True),
-    sa.Column('ip_address', sa.String(length=64), nullable=True),
-    sa.Column('user_agent', sa.Text(), nullable=True),
-    sa.Column('old_values', sa.JSON(), nullable=True),
-    sa.Column('new_values', sa.JSON(), nullable=True),
-    sa.Column('metadata_json', sa.JSON(), nullable=True),
-    sa.Column('created_at', sa.DateTime(), nullable=False),
-    sa.ForeignKeyConstraint(['actor_user_id'], ['users.id'], ),
-    sa.ForeignKeyConstraint(['chama_id'], ['chamas.id'], ),
-    sa.ForeignKeyConstraint(['contribution_id'], ['contributions.id'], ),
-    sa.ForeignKeyConstraint(['loan_id'], ['loans.id'], ),
-    sa.ForeignKeyConstraint(['membership_id'], ['memberships.id'], ),
-    sa.ForeignKeyConstraint(['poll_id'], ['polls.id'], ),
-    sa.ForeignKeyConstraint(['target_user_id'], ['users.id'], ),
-    sa.ForeignKeyConstraint(['vote_id'], ['votes.id'], ),
-    sa.PrimaryKeyConstraint('id')
-    )
-    with op.batch_alter_table('audit_logs', schema=None) as batch_op:
-        batch_op.create_index('ix_audit_actor_created', ['actor_user_id', 'created_at'], unique=False)
-        batch_op.create_index('ix_audit_chama_created', ['chama_id', 'created_at'], unique=False)
-        batch_op.create_index(batch_op.f('ix_audit_logs_action'), ['action'], unique=False)
-        batch_op.create_index(batch_op.f('ix_audit_logs_created_at'), ['created_at'], unique=False)
-        batch_op.create_index('ix_audit_target_user_created', ['target_user_id', 'created_at'], unique=False)
-
     # ### end Alembic commands ###
 
 
 def downgrade():
     # ### commands auto generated by Alembic - please adjust! ###
-    with op.batch_alter_table('audit_logs', schema=None) as batch_op:
-        batch_op.drop_index('ix_audit_target_user_created')
-        batch_op.drop_index(batch_op.f('ix_audit_logs_created_at'))
-        batch_op.drop_index(batch_op.f('ix_audit_logs_action'))
-        batch_op.drop_index('ix_audit_chama_created')
-        batch_op.drop_index('ix_audit_actor_created')
-
-    op.drop_table('audit_logs')
     with op.batch_alter_table('votes', schema=None) as batch_op:
         batch_op.drop_index(batch_op.f('ix_votes_user_id'))
         batch_op.drop_index(batch_op.f('ix_votes_poll_id'))
@@ -312,6 +349,21 @@ def downgrade():
         batch_op.drop_index(batch_op.f('ix_loan_repayments_loan_id'))
 
     op.drop_table('loan_repayments')
+    with op.batch_alter_table('investment_returns', schema=None) as batch_op:
+        batch_op.drop_index('ix_return_investment_date')
+        batch_op.drop_index(batch_op.f('ix_investment_returns_return_type'))
+        batch_op.drop_index(batch_op.f('ix_investment_returns_investment_id'))
+
+    op.drop_table('investment_returns')
+    with op.batch_alter_table('audit_logs', schema=None) as batch_op:
+        batch_op.drop_index('ix_audit_logs_target_user_id')
+        batch_op.drop_index('ix_audit_logs_membership_id')
+        batch_op.drop_index('ix_audit_logs_loan_id')
+        batch_op.drop_index('ix_audit_logs_chama_id')
+        batch_op.drop_index('ix_audit_logs_actor_user_id')
+        batch_op.drop_index('ix_audit_logs_action')
+
+    op.drop_table('audit_logs')
     with op.batch_alter_table('polls', schema=None) as batch_op:
         batch_op.drop_index(batch_op.f('ix_polls_status'))
         batch_op.drop_index(batch_op.f('ix_polls_chama_id'))
@@ -332,6 +384,15 @@ def downgrade():
         batch_op.drop_index('ix_loan_chama_borrower_status')
 
     op.drop_table('loans')
+    with op.batch_alter_table('investments', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_investments_status'))
+        batch_op.drop_index(batch_op.f('ix_investments_name'))
+        batch_op.drop_index(batch_op.f('ix_investments_investment_type'))
+        batch_op.drop_index(batch_op.f('ix_investments_chama_id'))
+        batch_op.drop_index('ix_investment_chama_type')
+        batch_op.drop_index('ix_investment_chama_status')
+
+    op.drop_table('investments')
     with op.batch_alter_table('contributions', schema=None) as batch_op:
         batch_op.drop_index(batch_op.f('ix_contributions_user_id'))
         batch_op.drop_index(batch_op.f('ix_contributions_reference_code'))

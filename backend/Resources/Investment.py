@@ -259,7 +259,7 @@ class ChamaInvestmentsResource(Resource):
         if error:
             return error
 
-        chama, actor_membership = result
+        chama, membership = result
         data = request.get_json() or {}
 
         name = (data.get("name") or "").strip()
@@ -285,6 +285,8 @@ class ChamaInvestmentsResource(Resource):
             return invested_at_error, 400
         if maturity_date_error:
             return maturity_date_error, 400
+        if invested_at and maturity_date and maturity_date <= invested_at:
+            return {"message": "maturity_date must be later than invested_at."}, 400
 
         try:
             investment = Investment(
@@ -348,11 +350,14 @@ class InvestmentDetailResource(Resource):
         if error:
             return error
 
-        chama, actor_membership = result
+        chama, membership = result
 
         investment = Investment.query.filter_by(id=investment_id, chama_id=chama.id).first()
         if not investment:
             return {"message": "Investment not found."}, 404
+
+        if investment.status in {InvestmentStatus.CLOSED, InvestmentStatus.CANCELLED}:
+            return {"message": "Closed or cancelled investments cannot be updated."}, 400
 
         old_values = investment_dict(investment, include_returns=True)
         data = request.get_json() or {}
@@ -405,6 +410,9 @@ class InvestmentDetailResource(Resource):
                 return maturity_date_error, 400
             investment.maturity_date = maturity_date
 
+        if investment.invested_at and investment.maturity_date and investment.maturity_date <= investment.invested_at:
+            return {"message": "maturity_date must be later than invested_at."}, 400
+
         try:
             db.session.commit()
 
@@ -433,7 +441,7 @@ class InvestmentDetailResource(Resource):
         if error:
             return error
 
-        chama, actor_membership = result
+        chama, membership = result
 
         investment = Investment.query.filter_by(id=investment_id, chama_id=chama.id).first()
         if not investment:
@@ -472,7 +480,7 @@ class InvestmentApproveResource(Resource):
         if error:
             return error
 
-        chama, actor_membership = result
+        chama, membership = result
 
         investment = Investment.query.filter_by(id=investment_id, chama_id=chama.id).first()
         if not investment:
@@ -517,7 +525,7 @@ class InvestmentCloseResource(Resource):
         if error:
             return error
 
-        chama, actor_membership = result
+        chama, membership = result
 
         investment = Investment.query.filter_by(id=investment_id, chama_id=chama.id).first()
         if not investment:
@@ -560,6 +568,51 @@ class InvestmentCloseResource(Resource):
             return {"message": f"Error closing investment: {str(e)}"}, 500
 
 
+class InvestmentCancelResource(Resource):
+    @jwt_required()
+    def patch(self, chama_id, investment_id):
+        current_user = get_current_user()
+        result, error = require_finance_roles(current_user, chama_id)
+        if error:
+            return error
+
+        chama, membership = result
+
+        investment = Investment.query.filter_by(id=investment_id, chama_id=chama.id).first()
+        if not investment:
+            return {"message": "Investment not found."}, 404
+
+        if investment.status != InvestmentStatus.PROPOSED:
+            return {"message": "Only proposed investments can be cancelled."}, 400
+
+        old_values = investment_dict(investment)
+
+        investment.status = InvestmentStatus.CANCELLED
+        investment.approved_by_user_id = None
+        investment.invested_at = None
+
+        try:
+            db.session.commit()
+
+            audit_log(
+                action=AuditAction.INVESTMENT_CANCELLED,
+                actor_user_id=current_user.id,
+                chama_id=chama.id,
+                description="Investment cancelled.",
+                old_values=old_values,
+                new_values=investment_dict(investment),
+            )
+
+            return {
+                "message": "Investment cancelled successfully.",
+                "investment": investment_dict(investment),
+            }, 200
+
+        except Exception as e:
+            db.session.rollback()
+            return {"message": f"Error cancelling investment: {str(e)}"}, 500
+
+
 class InvestmentReturnResource(Resource):
     @jwt_required()
     def get(self, chama_id, investment_id):
@@ -595,7 +648,7 @@ class InvestmentReturnResource(Resource):
         if error:
             return error
 
-        chama, actor_membership = result
+        chama, membership = result
 
         investment = Investment.query.filter_by(id=investment_id, chama_id=chama.id).first()
         if not investment:

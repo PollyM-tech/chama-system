@@ -1,14 +1,14 @@
 from datetime import datetime, timedelta
 import enum
 import secrets
+
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import UniqueConstraint, Index
 from werkzeug.security import generate_password_hash, check_password_hash
-from decimal import Decimal, ROUND_HALF_UP
-from calendar import monthrange
 
 
 db = SQLAlchemy()
+
 
 # =========================================================
 # ENUMS
@@ -105,6 +105,52 @@ class AuditAction(enum.Enum):
     POLL_DELETED = "poll_deleted"
 
     VOTE_CAST = "vote_cast"
+
+    INVESTMENT_CREATED = "investment_created"
+    INVESTMENT_UPDATED = "investment_updated"
+    INVESTMENT_APPROVED = "investment_approved"
+    INVESTMENT_CLOSED = "investment_closed"
+    INVESTMENT_CANCELLED = "investment_cancelled"
+    INVESTMENT_RETURN_RECORDED = "investment_return_recorded"
+    INVESTMENT_DELETED = "investment_deleted"
+
+
+class InvestmentStatus(enum.Enum):
+    PROPOSED = "proposed"
+    ACTIVE = "active"
+    CLOSED = "closed"
+    CANCELLED = "cancelled"
+
+
+class InvestmentType(enum.Enum):
+    STOCKS = "stocks"
+    BONDS = "bonds"
+    MONEY_MARKET = "money_market"
+    SACCO = "sacco"
+    REAL_ESTATE = "real_estate"
+    BUSINESS = "business"
+    FIXED_DEPOSIT = "fixed_deposit"
+    OTHER = "other"
+
+
+class ReturnType(enum.Enum):
+    DIVIDEND = "dividend"
+    INTEREST = "interest"
+    PROFIT_SHARE = "profit_share"
+    CAPITAL_GAIN = "capital_gain"
+    OTHER = "other"
+
+
+class LoanInterestType(enum.Enum):
+    FLAT = "flat"
+    REDUCING_BALANCE = "reducing_balance"
+
+
+class RepeatFrequency(enum.Enum):
+    DAILY = "daily"
+    WEEKLY = "weekly"
+    MONTHLY = "monthly"
+    YEARLY = "yearly"
 
 
 # =========================================================
@@ -407,6 +453,13 @@ class Chama(db.Model, TimestampMixin):
         foreign_keys="Poll.chama_id",
     )
 
+    investments = db.relationship(
+        "Investment",
+        back_populates="chama",
+        lazy=True,
+        foreign_keys="Investment.chama_id",
+    )
+
     def active_memberships_query(self):
         return Membership.query.filter_by(
             chama_id=self.id,
@@ -552,6 +605,9 @@ class Membership(db.Model, TimestampMixin):
 
 class ChamaInvite(db.Model, TimestampMixin):
     __tablename__ = "chama_invites"
+    __table_args__ = (
+        UniqueConstraint("chama_id", "email", "status", name="uq_pending_invite_per_email_chama"),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
 
@@ -595,10 +651,6 @@ class ChamaInvite(db.Model, TimestampMixin):
 
     invited_by = db.relationship("User", foreign_keys=[invited_by_user_id])
 
-    __table_args__ = (
-        UniqueConstraint("chama_id", "email", "status", name="uq_pending_invite_per_email_chama"),
-    )
-
     @staticmethod
     def generate_token():
         return secrets.token_urlsafe(32)
@@ -625,6 +677,93 @@ class ChamaInvite(db.Model, TimestampMixin):
 
     def __repr__(self):
         return f"<ChamaInvite {self.email} chama={self.chama_id}>"
+
+
+# =========================================================
+# AUDIT LOG MODEL
+# =========================================================
+
+class AuditLog(db.Model, TimestampMixin):
+    __tablename__ = "audit_logs"
+    __table_args__ = (
+        Index("ix_audit_logs_action", "action"),
+        Index("ix_audit_logs_chama_id", "chama_id"),
+        Index("ix_audit_logs_actor_user_id", "actor_user_id"),
+        Index("ix_audit_logs_target_user_id", "target_user_id"),
+        Index("ix_audit_logs_loan_id", "loan_id"),
+        Index("ix_audit_logs_membership_id", "membership_id"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    action = db.Column(db.Enum(AuditAction), nullable=False, index=True)
+
+    actor_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    target_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    chama_id = db.Column(db.Integer, db.ForeignKey("chamas.id"), nullable=True)
+    loan_id = db.Column(db.Integer, db.ForeignKey("loans.id"), nullable=True)
+    membership_id = db.Column(db.Integer, db.ForeignKey("memberships.id"), nullable=True)
+
+    description = db.Column(db.Text, nullable=True)
+    old_values = db.Column(db.JSON, nullable=True)
+    new_values = db.Column(db.JSON, nullable=True)
+    metadata_json = db.Column(db.JSON, nullable=True)
+
+    ip_address = db.Column(db.String(64), nullable=True)
+    user_agent = db.Column(db.Text, nullable=True)
+
+    actor = db.relationship(
+        "User",
+        foreign_keys=[actor_user_id],
+        back_populates="audit_logs_actor",
+    )
+
+    target_user = db.relationship(
+        "User",
+        foreign_keys=[target_user_id],
+        back_populates="audit_logs_target_user",
+    )
+
+    chama = db.relationship("Chama", foreign_keys=[chama_id])
+    loan = db.relationship("Loan", foreign_keys=[loan_id])
+    membership = db.relationship("Membership", foreign_keys=[membership_id])
+
+    @classmethod
+    def log(
+        cls,
+        action,
+        actor_user_id=None,
+        target_user_id=None,
+        chama_id=None,
+        loan_id=None,
+        membership_id=None,
+        description=None,
+        old_values=None,
+        new_values=None,
+        metadata_json=None,
+        ip_address=None,
+        user_agent=None,
+    ):
+        entry = cls(
+            action=action,
+            actor_user_id=actor_user_id,
+            target_user_id=target_user_id,
+            chama_id=chama_id,
+            loan_id=loan_id,
+            membership_id=membership_id,
+            description=description,
+            old_values=old_values,
+            new_values=new_values,
+            metadata_json=metadata_json,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        db.session.add(entry)
+        db.session.flush()
+        return entry
+
+    def __repr__(self):
+        return f"<AuditLog {self.id} action={self.action.value}>"
 
 
 # =========================================================
@@ -756,7 +895,7 @@ class Loan(db.Model, TimestampMixin):
     def refresh_repayment_status(self):
         if self.status in {LoanStatus.REJECTED, LoanStatus.CANCELLED}:
             return
-        
+
         if self.total_amount_due is None:
             self.calculate_total_due()
 
@@ -803,15 +942,6 @@ class LoanRepayment(db.Model, TimestampMixin):
     def __repr__(self):
         return f"<LoanRepayment {self.id} loan={self.loan_id} amount={self.amount}>"
 
-class LoanInterestType(enum.Enum):
-    FLAT = "flat"
-    REDUCING_BALANCE = "reducing_balance"
-
-class RepeatFrequency(enum.Enum):
-    DAILY = "daily"
-    WEEKLY = "weekly"
-    MONTHLY = "monthly"
-    YEARLY = "yearly"
 
 # =========================================================
 # VOTING MODELS
@@ -920,35 +1050,6 @@ class Vote(db.Model, TimestampMixin):
     def __repr__(self):
         return f"<Vote poll={self.poll_id} user={self.user_id}>"
 
-# =========================================================
-# INVESTMENT ENUMS
-# =========================================================
-
-class InvestmentStatus(enum.Enum):
-    PROPOSED = "proposed"
-    ACTIVE = "active"
-    CLOSED = "closed"
-    CANCELLED = "cancelled"
-
-
-class InvestmentType(enum.Enum):
-    STOCKS = "stocks"
-    BONDS = "bonds"
-    MONEY_MARKET = "money_market"
-    SACCO = "sacco"
-    REAL_ESTATE = "real_estate"
-    BUSINESS = "business"
-    FIXED_DEPOSIT = "fixed_deposit"
-    OTHER = "other"
-
-
-class ReturnType(enum.Enum):
-    DIVIDEND = "dividend"
-    INTEREST = "interest"
-    PROFIT_SHARE = "profit_share"
-    CAPITAL_GAIN = "capital_gain"
-    OTHER = "other"
-
 
 # =========================================================
 # INVESTMENT MODELS
@@ -994,7 +1095,7 @@ class Investment(db.Model, TimestampMixin):
 
     chama = db.relationship(
         "Chama",
-        backref=db.backref("investments", lazy=True),
+        back_populates="investments",
         foreign_keys=[chama_id],
     )
 

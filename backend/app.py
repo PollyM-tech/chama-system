@@ -68,6 +68,7 @@ from Resources.Investment import (
     InvestmentDetailResource,
     InvestmentApproveResource,
     InvestmentCloseResource,
+    InvestmentCancelResource,
     InvestmentReturnResource,
     InvestmentSummaryResource,
 )
@@ -153,9 +154,9 @@ api.add_resource(ChamaInvestmentsResource, "/api/chamas/<int:chama_id>/investmen
 api.add_resource(InvestmentDetailResource, "/api/chamas/<int:chama_id>/investments/<int:investment_id>")
 api.add_resource(InvestmentApproveResource, "/api/chamas/<int:chama_id>/investments/<int:investment_id>/approve")
 api.add_resource(InvestmentCloseResource, "/api/chamas/<int:chama_id>/investments/<int:investment_id>/close")
-api.add_resource(InvestmentReturnResource, "/api/chamas/<int:chama_id>/investments/<int:investment_id>/return")
+api.add_resource(InvestmentCancelResource, "/api/chamas/<int:chama_id>/investments/<int:investment_id>/cancel")
+api.add_resource(InvestmentReturnResource, "/api/chamas/<int:chama_id>/investments/<int:investment_id>/returns")
 api.add_resource(InvestmentSummaryResource, "/api/chamas/<int:chama_id>/investments/summary")
-
 
 
 
