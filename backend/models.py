@@ -68,6 +68,62 @@ class PollStatus(enum.Enum):
     ARCHIVED = "archived"
 
 
+class InvestmentStatus(enum.Enum):
+    PROPOSED = "proposed"
+    ACTIVE = "active"
+    CLOSED = "closed"
+    CANCELLED = "cancelled"
+
+
+class InvestmentType(enum.Enum):
+    STOCKS = "stocks"
+    BONDS = "bonds"
+    MONEY_MARKET = "money_market"
+    SACCO = "sacco"
+    REAL_ESTATE = "real_estate"
+    BUSINESS = "business"
+    FIXED_DEPOSIT = "fixed_deposit"
+    OTHER = "other"
+
+
+class ReturnType(enum.Enum):
+    DIVIDEND = "dividend"
+    INTEREST = "interest"
+    PROFIT_SHARE = "profit_share"
+    CAPITAL_GAIN = "capital_gain"
+    OTHER = "other"
+
+
+class DividendStatus(enum.Enum):
+    DRAFT = "draft"
+    APPROVED = "approved"
+    DISTRIBUTED = "distributed"
+    CANCELLED = "cancelled"
+
+
+class DividendDistributionMethod(enum.Enum):
+    EQUAL = "equal"
+    PROPORTIONAL_CONTRIBUTION = "proportional_contribution"
+
+
+class DividendAllocationStatus(enum.Enum):
+    PENDING = "pending"
+    PAID = "paid"
+    CANCELLED = "cancelled"
+
+
+class LoanInterestType(enum.Enum):
+    FLAT = "flat"
+    REDUCING_BALANCE = "reducing_balance"
+
+
+class RepeatFrequency(enum.Enum):
+    DAILY = "daily"
+    WEEKLY = "weekly"
+    MONTHLY = "monthly"
+    YEARLY = "yearly"
+
+
 class AuditAction(enum.Enum):
     USER_CREATED = "user_created"
     USER_UPDATED = "user_updated"
@@ -114,43 +170,13 @@ class AuditAction(enum.Enum):
     INVESTMENT_RETURN_RECORDED = "investment_return_recorded"
     INVESTMENT_DELETED = "investment_deleted"
 
-
-class InvestmentStatus(enum.Enum):
-    PROPOSED = "proposed"
-    ACTIVE = "active"
-    CLOSED = "closed"
-    CANCELLED = "cancelled"
-
-
-class InvestmentType(enum.Enum):
-    STOCKS = "stocks"
-    BONDS = "bonds"
-    MONEY_MARKET = "money_market"
-    SACCO = "sacco"
-    REAL_ESTATE = "real_estate"
-    BUSINESS = "business"
-    FIXED_DEPOSIT = "fixed_deposit"
-    OTHER = "other"
-
-
-class ReturnType(enum.Enum):
-    DIVIDEND = "dividend"
-    INTEREST = "interest"
-    PROFIT_SHARE = "profit_share"
-    CAPITAL_GAIN = "capital_gain"
-    OTHER = "other"
-
-
-class LoanInterestType(enum.Enum):
-    FLAT = "flat"
-    REDUCING_BALANCE = "reducing_balance"
-
-
-class RepeatFrequency(enum.Enum):
-    DAILY = "daily"
-    WEEKLY = "weekly"
-    MONTHLY = "monthly"
-    YEARLY = "yearly"
+    DIVIDEND_CREATED = "dividend_created"
+    DIVIDEND_UPDATED = "dividend_updated"
+    DIVIDEND_APPROVED = "dividend_approved"
+    DIVIDEND_DISTRIBUTED = "dividend_distributed"
+    DIVIDEND_CANCELLED = "dividend_cancelled"
+    DIVIDEND_DELETED = "dividend_deleted"
+    DIVIDEND_PAYMENT_RECORDED = "dividend_payment_recorded"
 
 
 # =========================================================
@@ -327,6 +353,34 @@ class User(db.Model, TimestampMixin, UserLifecycleMixin):
         lazy=True,
     )
 
+    created_dividends = db.relationship(
+        "Dividend",
+        foreign_keys="Dividend.created_by_user_id",
+        back_populates="created_by",
+        lazy=True,
+    )
+
+    approved_dividends = db.relationship(
+        "Dividend",
+        foreign_keys="Dividend.approved_by_user_id",
+        back_populates="approved_by",
+        lazy=True,
+    )
+
+    dividend_allocations = db.relationship(
+        "DividendAllocation",
+        foreign_keys="DividendAllocation.user_id",
+        back_populates="user",
+        lazy=True,
+    )
+
+    recorded_dividend_payments = db.relationship(
+        "DividendAllocation",
+        foreign_keys="DividendAllocation.paid_by_user_id",
+        back_populates="paid_by",
+        lazy=True,
+    )
+
     def set_password(self, raw_password):
         self.password_hash = generate_password_hash(raw_password)
 
@@ -460,6 +514,14 @@ class Chama(db.Model, TimestampMixin):
         foreign_keys="Investment.chama_id",
     )
 
+    dividends = db.relationship(
+        "Dividend",
+        back_populates="chama",
+        lazy=True,
+        cascade="all, delete-orphan",
+        foreign_keys="Dividend.chama_id",
+    )
+
     def active_memberships_query(self):
         return Membership.query.filter_by(
             chama_id=self.id,
@@ -522,17 +584,8 @@ class Membership(db.Model, TimestampMixin):
 
     notes = db.Column(db.Text, nullable=True)
 
-    user = db.relationship(
-        "User",
-        back_populates="memberships",
-        foreign_keys=[user_id],
-    )
-
-    chama = db.relationship(
-        "Chama",
-        back_populates="memberships",
-        foreign_keys=[chama_id],
-    )
+    user = db.relationship("User", back_populates="memberships", foreign_keys=[user_id])
+    chama = db.relationship("Chama", back_populates="memberships", foreign_keys=[chama_id])
 
     inviter = db.relationship("User", foreign_keys=[invited_by_user_id])
     approver = db.relationship("User", foreign_keys=[approved_by_user_id])
@@ -637,18 +690,8 @@ class ChamaInvite(db.Model, TimestampMixin):
     accepted_at = db.Column(db.DateTime, nullable=True)
     revoked_at = db.Column(db.DateTime, nullable=True)
 
-    chama = db.relationship(
-        "Chama",
-        back_populates="invites",
-        foreign_keys=[chama_id],
-    )
-
-    invited_user = db.relationship(
-        "User",
-        back_populates="invites_received",
-        foreign_keys=[invited_user_id],
-    )
-
+    chama = db.relationship("Chama", back_populates="invites", foreign_keys=[chama_id])
+    invited_user = db.relationship("User", back_populates="invites_received", foreign_keys=[invited_user_id])
     invited_by = db.relationship("User", foreign_keys=[invited_by_user_id])
 
     @staticmethod
@@ -712,17 +755,8 @@ class AuditLog(db.Model, TimestampMixin):
     ip_address = db.Column(db.String(64), nullable=True)
     user_agent = db.Column(db.Text, nullable=True)
 
-    actor = db.relationship(
-        "User",
-        foreign_keys=[actor_user_id],
-        back_populates="audit_logs_actor",
-    )
-
-    target_user = db.relationship(
-        "User",
-        foreign_keys=[target_user_id],
-        back_populates="audit_logs_target_user",
-    )
+    actor = db.relationship("User", foreign_keys=[actor_user_id], back_populates="audit_logs_actor")
+    target_user = db.relationship("User", foreign_keys=[target_user_id], back_populates="audit_logs_target_user")
 
     chama = db.relationship("Chama", foreign_keys=[chama_id])
     loan = db.relationship("Loan", foreign_keys=[loan_id])
@@ -789,23 +823,9 @@ class Contribution(db.Model, TimestampMixin):
     reference_code = db.Column(db.String(100), nullable=True, index=True)
     notes = db.Column(db.Text, nullable=True)
 
-    chama = db.relationship(
-        "Chama",
-        back_populates="contributions",
-        foreign_keys=[chama_id],
-    )
-
-    user = db.relationship(
-        "User",
-        back_populates="contributions",
-        foreign_keys=[user_id],
-    )
-
-    recorded_by = db.relationship(
-        "User",
-        back_populates="recorded_contributions",
-        foreign_keys=[recorded_by_user_id],
-    )
+    chama = db.relationship("Chama", back_populates="contributions", foreign_keys=[chama_id])
+    user = db.relationship("User", back_populates="contributions", foreign_keys=[user_id])
+    recorded_by = db.relationship("User", back_populates="recorded_contributions", foreign_keys=[recorded_by_user_id])
 
     def __repr__(self):
         return f"<Contribution {self.id} user={self.user_id} amount={self.amount}>"
@@ -844,29 +864,10 @@ class Loan(db.Model, TimestampMixin):
     rejected_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
     rejection_reason = db.Column(db.Text, nullable=True)
 
-    chama = db.relationship(
-        "Chama",
-        back_populates="loans",
-        foreign_keys=[chama_id],
-    )
-
-    borrower = db.relationship(
-        "User",
-        back_populates="loans",
-        foreign_keys=[borrower_user_id],
-    )
-
-    approved_by = db.relationship(
-        "User",
-        back_populates="approved_loans",
-        foreign_keys=[approved_by_user_id],
-    )
-
-    rejected_by = db.relationship(
-        "User",
-        back_populates="rejected_loans",
-        foreign_keys=[rejected_by_user_id],
-    )
+    chama = db.relationship("Chama", back_populates="loans", foreign_keys=[chama_id])
+    borrower = db.relationship("User", back_populates="loans", foreign_keys=[borrower_user_id])
+    approved_by = db.relationship("User", back_populates="approved_loans", foreign_keys=[approved_by_user_id])
+    rejected_by = db.relationship("User", back_populates="rejected_loans", foreign_keys=[rejected_by_user_id])
 
     repayments = db.relationship(
         "LoanRepayment",
@@ -927,17 +928,8 @@ class LoanRepayment(db.Model, TimestampMixin):
     reference_code = db.Column(db.String(100), nullable=True, index=True)
     notes = db.Column(db.Text, nullable=True)
 
-    loan = db.relationship(
-        "Loan",
-        back_populates="repayments",
-        foreign_keys=[loan_id],
-    )
-
-    recorded_by = db.relationship(
-        "User",
-        back_populates="recorded_repayments",
-        foreign_keys=[recorded_by_user_id],
-    )
+    loan = db.relationship("Loan", back_populates="repayments", foreign_keys=[loan_id])
+    recorded_by = db.relationship("User", back_populates="recorded_repayments", foreign_keys=[recorded_by_user_id])
 
     def __repr__(self):
         return f"<LoanRepayment {self.id} loan={self.loan_id} amount={self.amount}>"
@@ -967,12 +959,7 @@ class Poll(db.Model, TimestampMixin):
     opens_at = db.Column(db.DateTime, nullable=True)
     closes_at = db.Column(db.DateTime, nullable=True)
 
-    chama = db.relationship(
-        "Chama",
-        back_populates="polls",
-        foreign_keys=[chama_id],
-    )
-
+    chama = db.relationship("Chama", back_populates="polls", foreign_keys=[chama_id])
     created_by = db.relationship("User", foreign_keys=[created_by_user_id])
 
     options = db.relationship(
@@ -1011,11 +998,7 @@ class PollOption(db.Model, TimestampMixin):
     poll_id = db.Column(db.Integer, db.ForeignKey("polls.id"), nullable=False, index=True)
     option_text = db.Column(db.String(255), nullable=False)
 
-    poll = db.relationship(
-        "Poll",
-        back_populates="options",
-        foreign_keys=[poll_id],
-    )
+    poll = db.relationship("Poll", back_populates="options", foreign_keys=[poll_id])
 
     def __repr__(self):
         return f"<PollOption {self.id} poll={self.poll_id}>"
@@ -1033,19 +1016,9 @@ class Vote(db.Model, TimestampMixin):
     option_id = db.Column(db.Integer, db.ForeignKey("poll_options.id"), nullable=False, index=True)
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
 
-    poll = db.relationship(
-        "Poll",
-        back_populates="votes",
-        foreign_keys=[poll_id],
-    )
-
+    poll = db.relationship("Poll", back_populates="votes", foreign_keys=[poll_id])
     option = db.relationship("PollOption", foreign_keys=[option_id])
-
-    user = db.relationship(
-        "User",
-        back_populates="votes",
-        foreign_keys=[user_id],
-    )
+    user = db.relationship("User", back_populates="votes", foreign_keys=[user_id])
 
     def __repr__(self):
         return f"<Vote poll={self.poll_id} user={self.user_id}>"
@@ -1093,11 +1066,7 @@ class Investment(db.Model, TimestampMixin):
     created_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     approved_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
 
-    chama = db.relationship(
-        "Chama",
-        back_populates="investments",
-        foreign_keys=[chama_id],
-    )
+    chama = db.relationship("Chama", back_populates="investments", foreign_keys=[chama_id])
 
     created_by = db.relationship(
         "User",
@@ -1163,11 +1132,7 @@ class InvestmentReturn(db.Model, TimestampMixin):
     notes = db.Column(db.Text, nullable=True)
     recorded_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
 
-    investment = db.relationship(
-        "Investment",
-        back_populates="returns",
-        foreign_keys=[investment_id],
-    )
+    investment = db.relationship("Investment", back_populates="returns", foreign_keys=[investment_id])
 
     recorded_by = db.relationship(
         "User",
@@ -1177,3 +1142,136 @@ class InvestmentReturn(db.Model, TimestampMixin):
 
     def __repr__(self):
         return f"<InvestmentReturn {self.id} investment={self.investment_id} amount={self.amount}>"
+
+
+# =========================================================
+# DIVIDEND MODELS
+# =========================================================
+
+class Dividend(db.Model, TimestampMixin):
+    __tablename__ = "dividends"
+    __table_args__ = (
+        Index("ix_dividend_chama_status", "chama_id", "status"),
+        Index("ix_dividend_chama_date", "chama_id", "distribution_date"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    chama_id = db.Column(db.Integer, db.ForeignKey("chamas.id"), nullable=False, index=True)
+    title = db.Column(db.String(150), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+
+    total_amount = db.Column(db.Numeric(14, 2), nullable=False)
+
+    status = db.Column(
+        db.Enum(DividendStatus),
+        default=DividendStatus.DRAFT,
+        nullable=False,
+        index=True,
+    )
+
+    distribution_method = db.Column(
+        db.Enum(DividendDistributionMethod),
+        default=DividendDistributionMethod.EQUAL,
+        nullable=False,
+        index=True,
+    )
+
+    distribution_date = db.Column(db.DateTime, nullable=True)
+    period_start = db.Column(db.DateTime, nullable=True)
+    period_end = db.Column(db.DateTime, nullable=True)
+
+    created_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    approved_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+
+    chama = db.relationship("Chama", back_populates="dividends", foreign_keys=[chama_id])
+
+    created_by = db.relationship(
+        "User",
+        foreign_keys=[created_by_user_id],
+        back_populates="created_dividends",
+    )
+
+    approved_by = db.relationship(
+        "User",
+        foreign_keys=[approved_by_user_id],
+        back_populates="approved_dividends",
+    )
+
+    allocations = db.relationship(
+        "DividendAllocation",
+        back_populates="dividend",
+        lazy=True,
+        cascade="all, delete-orphan",
+        foreign_keys="DividendAllocation.dividend_id",
+    )
+
+    @property
+    def total_allocated(self):
+        return round(sum(float(a.amount or 0) for a in self.allocations), 2)
+
+    @property
+    def total_paid(self):
+        return round(
+            sum(
+                float(a.amount or 0)
+                for a in self.allocations
+                if a.status == DividendAllocationStatus.PAID
+            ),
+            2,
+        )
+
+    @property
+    def pending_amount(self):
+        return round(self.total_allocated - self.total_paid, 2)
+
+    def __repr__(self):
+        return f"<Dividend {self.id} chama={self.chama_id} status={self.status.value}>"
+
+
+class DividendAllocation(db.Model, TimestampMixin):
+    __tablename__ = "dividend_allocations"
+    __table_args__ = (
+        UniqueConstraint("dividend_id", "user_id", name="uq_dividend_allocation_user"),
+        Index("ix_dividend_allocation_dividend_status", "dividend_id", "status"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    dividend_id = db.Column(db.Integer, db.ForeignKey("dividends.id"), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+
+    amount = db.Column(db.Numeric(14, 2), nullable=False)
+
+    status = db.Column(
+        db.Enum(DividendAllocationStatus),
+        default=DividendAllocationStatus.PENDING,
+        nullable=False,
+        index=True,
+    )
+
+    paid_at = db.Column(db.DateTime, nullable=True)
+    paid_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    notes = db.Column(db.Text, nullable=True)
+
+    dividend = db.relationship("Dividend", back_populates="allocations", foreign_keys=[dividend_id])
+
+    user = db.relationship(
+        "User",
+        foreign_keys=[user_id],
+        back_populates="dividend_allocations",
+    )
+
+    paid_by = db.relationship(
+        "User",
+        foreign_keys=[paid_by_user_id],
+        back_populates="recorded_dividend_payments",
+    )
+
+    def mark_paid(self, paid_by_user_id=None):
+        self.status = DividendAllocationStatus.PAID
+        self.paid_at = datetime.utcnow()
+        self.paid_by_user_id = paid_by_user_id
+
+    def __repr__(self):
+        return f"<DividendAllocation {self.id} dividend={self.dividend_id} user={self.user_id}>"

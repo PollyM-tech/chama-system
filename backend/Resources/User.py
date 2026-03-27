@@ -644,3 +644,31 @@ class RefreshTokenResource(Resource):
             "message": "Token refreshed successfully.",
             "access_token": access_token
         }, 200
+    
+    created_dividends = db.relationship(
+        "Dividend",
+        foreign_keys="Dividend.created_by_user_id",
+        back_populates="created_by",
+        lazy=True,
+    )
+
+    approved_dividends = db.relationship(
+        "Dividend",
+        foreign_keys="Dividend.approved_by_user_id",
+        back_populates="approved_by",
+        lazy=True,
+    )
+
+    dividend_allocations = db.relationship(
+        "DividendAllocation",
+        foreign_keys="DividendAllocation.user_id",
+        back_populates="user",
+        lazy=True,
+    )
+
+    recorded_dividend_payments = db.relationship(
+        "DividendAllocation",
+        foreign_keys="DividendAllocation.paid_by_user_id",
+        back_populates="paid_by",
+        lazy=True,
+    )

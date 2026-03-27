@@ -53,3 +53,11 @@ only open polls can receive votes
 each user can vote once
 selected option must belong to the poll
 draft polls can be deleted, but open or closed polls should not be deleted casually
+
+#investments
+create investment
+approve investment
+cancel investment
+close investment
+record investment return
+get investment summary

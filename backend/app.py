@@ -72,6 +72,14 @@ from Resources.Investment import (
     InvestmentReturnResource,
     InvestmentSummaryResource,
 )
+from Resources.Dividend import (
+    ChamaDividendsResource,
+    DividendDetailResource,
+    DividendApproveResource,
+    DividendDistributeResource,
+    DividendAllocationPaymentResource,
+    DividendSummaryResource,
+)
 
 load_dotenv()
 
@@ -158,7 +166,13 @@ api.add_resource(InvestmentCancelResource, "/api/chamas/<int:chama_id>/investmen
 api.add_resource(InvestmentReturnResource, "/api/chamas/<int:chama_id>/investments/<int:investment_id>/returns")
 api.add_resource(InvestmentSummaryResource, "/api/chamas/<int:chama_id>/investments/summary")
 
-
+#DIVIDEND ROUTES
+api.add_resource(ChamaDividendsResource, "/api/chamas/<int:chama_id>/dividends")
+api.add_resource(DividendDetailResource, "/api/chamas/<int:chama_id>/dividends/<int:dividend_id>")
+api.add_resource(DividendApproveResource, "/api/chamas/<int:chama_id>/dividends/<int:dividend_id>/approve")
+api.add_resource(DividendDistributeResource, "/api/chamas/<int:chama_id>/dividends/<int:dividend_id>/distribute")
+api.add_resource(DividendAllocationPaymentResource, "/api/chamas/<int:chama_id>/dividends/<int:dividend_id>/allocations/<int:allocation_id>/pay")
+api.add_resource(DividendSummaryResource, "/api/chamas/<int:chama_id>/dividends/summary")
 
 @app.route("/")
 def home():

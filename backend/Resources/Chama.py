@@ -882,3 +882,11 @@ class ChamaRemoveMembershipResource(Resource):
             "message": "Membership removed successfully.",
             "membership": membership_dict(membership),
         }, 200
+    
+    dividends = db.relationship(
+        "Dividend",
+        back_populates="chama",
+        lazy=True,
+        cascade="all, delete-orphan",
+        foreign_keys="Dividend.chama_id",
+    )
