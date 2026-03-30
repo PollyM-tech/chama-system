@@ -81,6 +81,14 @@ from Resources.Dividend import (
     DividendSummaryResource,
 )
 
+from Resources.Expense import (
+    ChamaExpensesResource,
+    ExpenseDetailResource,
+    ExpenseApproveResource,
+    ExpenseCancelResource,
+    ExpenseSummaryResource,
+)
+
 load_dotenv()
 
 app = Flask(__name__)
@@ -173,6 +181,14 @@ api.add_resource(DividendApproveResource, "/api/chamas/<int:chama_id>/dividends/
 api.add_resource(DividendDistributeResource, "/api/chamas/<int:chama_id>/dividends/<int:dividend_id>/distribute")
 api.add_resource(DividendAllocationPaymentResource, "/api/chamas/<int:chama_id>/dividends/<int:dividend_id>/allocations/<int:allocation_id>/pay")
 api.add_resource(DividendSummaryResource, "/api/chamas/<int:chama_id>/dividends/summary")
+
+
+#EXPENSE ROUTES
+api.add_resource(ChamaExpensesResource, "/api/chamas/<int:chama_id>/expenses")
+api.add_resource(ExpenseDetailResource, "/api/chamas/<int:chama_id>/expenses/<int:expense_id>")
+api.add_resource(ExpenseApproveResource, "/api/chamas/<int:chama_id>/expenses/<int:expense_id>/approve")
+api.add_resource(ExpenseCancelResource, "/api/chamas/<int:chama_id>/expenses/<int:expense_id>/cancel")
+api.add_resource(ExpenseSummaryResource, "/api/chamas/<int:chama_id>/expenses/summary")
 
 @app.route("/")
 def home():

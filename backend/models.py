@@ -123,6 +123,22 @@ class RepeatFrequency(enum.Enum):
     MONTHLY = "monthly"
     YEARLY = "yearly"
 
+class ExpenseCategory(enum.Enum):
+    OPERATIONS = "operations"
+    TRANSPORT = "transport"
+    MEETING = "meeting"
+    COMMUNICATION = "communication"
+    BANK_CHARGES = "bank_charges"
+    WELFARE = "welfare"
+    LOAN_PROCESSING = "loan_processing"
+    INVESTMENT = "investment"
+    OTHER = "other"
+
+
+class ExpenseStatus(enum.Enum):
+    RECORDED = "recorded"
+    APPROVED = "approved"
+    CANCELLED = "cancelled"
 
 class AuditAction(enum.Enum):
     USER_CREATED = "user_created"
@@ -178,6 +194,11 @@ class AuditAction(enum.Enum):
     DIVIDEND_DELETED = "dividend_deleted"
     DIVIDEND_PAYMENT_RECORDED = "dividend_payment_recorded"
 
+    EXPENSE_CREATED = "expense_created"
+    EXPENSE_UPDATED = "expense_updated"
+    EXPENSE_APPROVED = "expense_approved"
+    EXPENSE_CANCELLED = "expense_cancelled"
+    EXPENSE_DELETED = "expense_deleted"
 
 # =========================================================
 # MIXINS
@@ -381,6 +402,22 @@ class User(db.Model, TimestampMixin, UserLifecycleMixin):
         lazy=True,
     )
 
+    recorded_expenses = db.relationship(
+        "Expense",
+        foreign_keys="Expense.recorded_by_user_id",
+        back_populates="recorded_by",
+        lazy=True,
+    )
+
+    approved_expenses = db.relationship(
+        "Expense",
+        foreign_keys="Expense.approved_by_user_id",
+        back_populates="approved_by",
+        lazy=True,
+    )
+
+
+
     def set_password(self, raw_password):
         self.password_hash = generate_password_hash(raw_password)
 
@@ -520,6 +557,14 @@ class Chama(db.Model, TimestampMixin):
         lazy=True,
         cascade="all, delete-orphan",
         foreign_keys="Dividend.chama_id",
+    )
+
+    expenses = db.relationship(
+        "Expense",
+        back_populates="chama",
+        lazy=True,
+        cascade="all, delete-orphan",
+        foreign_keys="Expense.chama_id",
     )
 
     def active_memberships_query(self):
@@ -1275,3 +1320,62 @@ class DividendAllocation(db.Model, TimestampMixin):
 
     def __repr__(self):
         return f"<DividendAllocation {self.id} dividend={self.dividend_id} user={self.user_id}>"
+    
+class Expense(db.Model, TimestampMixin):
+    __tablename__ = "expenses"
+    __table_args__ = (
+        Index("ix_expense_chama_status", "chama_id", "status"),
+        Index("ix_expense_chama_category", "chama_id", "category"),
+        Index("ix_expense_chama_date", "chama_id", "expense_date"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    chama_id = db.Column(db.Integer, db.ForeignKey("chamas.id"), nullable=False, index=True)
+    title = db.Column(db.String(150), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+
+    amount = db.Column(db.Numeric(14, 2), nullable=False)
+
+    category = db.Column(
+        db.Enum(ExpenseCategory),
+        default=ExpenseCategory.OTHER,
+        nullable=False,
+        index=True,
+    )
+
+    status = db.Column(
+        db.Enum(ExpenseStatus),
+        default=ExpenseStatus.RECORDED,
+        nullable=False,
+        index=True,
+    )
+
+    expense_date = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    payment_method = db.Column(db.String(50), nullable=True)
+    reference_code = db.Column(db.String(100), nullable=True, index=True)
+    notes = db.Column(db.Text, nullable=True)
+
+    recorded_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    approved_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+
+    chama = db.relationship(
+        "Chama",
+        back_populates="expenses",
+        foreign_keys=[chama_id],
+    )
+
+    recorded_by = db.relationship(
+        "User",
+        foreign_keys=[recorded_by_user_id],
+        back_populates="recorded_expenses",
+    )
+
+    approved_by = db.relationship(
+        "User",
+        foreign_keys=[approved_by_user_id],
+        back_populates="approved_expenses",
+    )
+
+    def __repr__(self):
+        return f"<Expense {self.id} chama={self.chama_id} amount={self.amount} status={self.status.value}>"

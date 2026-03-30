@@ -672,3 +672,17 @@ class RefreshTokenResource(Resource):
         back_populates="paid_by",
         lazy=True,
     )
+
+    recorded_expenses = db.relationship(
+        "Expense",
+        foreign_keys="Expense.recorded_by_user_id",
+        back_populates="recorded_by",
+        lazy=True,
+    )
+
+    approved_expenses = db.relationship(
+        "Expense",
+        foreign_keys="Expense.approved_by_user_id",
+        back_populates="approved_by",
+        lazy=True,
+    )

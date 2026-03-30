@@ -890,3 +890,11 @@ class ChamaRemoveMembershipResource(Resource):
         cascade="all, delete-orphan",
         foreign_keys="Dividend.chama_id",
     )
+
+    expenses = db.relationship(
+        "Expense",
+        back_populates="chama",
+        lazy=True,
+        cascade="all, delete-orphan",
+        foreign_keys="Expense.chama_id",
+    )
