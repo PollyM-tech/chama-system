@@ -5,6 +5,7 @@ from flask import request
 from flask_restful import Resource
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
+from Resources.Notification import create_notification
 from models import (
     db,
     User,
@@ -17,6 +18,7 @@ from models import (
     MembershipStatus,
     ExpenseCategory,
     ExpenseStatus,
+    NotificationType,
 )
 
 
@@ -249,6 +251,18 @@ class ChamaExpensesResource(Resource):
             )
 
             db.session.add(expense)
+            db.session.flush()
+
+            create_notification(
+                user_id=current_user.id,
+                chama_id=chama.id,
+                title="Expense created",
+                message=f"Expense '{expense.title}' has been recorded in {chama.name}.",
+                notification_type=NotificationType.EXPENSE,
+                action_url=f"/chamas/{chama.id}/expenses/{expense.id}",
+                metadata_json={"expense_id": expense.id, "status": ExpenseStatus.RECORDED.value},
+            )
+
             db.session.commit()
 
             audit_log(
@@ -344,6 +358,16 @@ class ExpenseDetailResource(Resource):
             expense.notes = data.get("notes")
 
         try:
+            create_notification(
+                user_id=expense.recorded_by_user_id,
+                chama_id=chama.id,
+                title="Expense updated",
+                message=f"Expense '{expense.title}' has been updated in {chama.name}.",
+                notification_type=NotificationType.EXPENSE,
+                action_url=f"/chamas/{chama.id}/expenses/{expense.id}",
+                metadata_json={"expense_id": expense.id, "status": expense.status.value},
+            )
+
             db.session.commit()
 
             audit_log(
@@ -383,6 +407,16 @@ class ExpenseDetailResource(Resource):
         old_values = expense_dict(expense)
 
         try:
+            create_notification(
+                user_id=expense.recorded_by_user_id,
+                chama_id=chama.id,
+                title="Expense deleted",
+                message=f"Expense '{expense.title}' was deleted from {chama.name}.",
+                notification_type=NotificationType.EXPENSE,
+                action_url=f"/chamas/{chama.id}/expenses",
+                metadata_json={"expense_id": expense.id, "status": "deleted"},
+            )
+
             db.session.delete(expense)
             db.session.commit()
 
@@ -424,6 +458,16 @@ class ExpenseApproveResource(Resource):
         expense.approved_by_user_id = current_user.id
 
         try:
+            create_notification(
+                user_id=expense.recorded_by_user_id,
+                chama_id=chama.id,
+                title="Expense approved",
+                message=f"Expense '{expense.title}' has been approved in {chama.name}.",
+                notification_type=NotificationType.EXPENSE,
+                action_url=f"/chamas/{chama.id}/expenses/{expense.id}",
+                metadata_json={"expense_id": expense.id, "status": ExpenseStatus.APPROVED.value},
+            )
+
             db.session.commit()
 
             audit_log(
@@ -467,6 +511,16 @@ class ExpenseCancelResource(Resource):
         expense.approved_by_user_id = None
 
         try:
+            create_notification(
+                user_id=expense.recorded_by_user_id,
+                chama_id=chama.id,
+                title="Expense cancelled",
+                message=f"Expense '{expense.title}' has been cancelled in {chama.name}.",
+                notification_type=NotificationType.EXPENSE,
+                action_url=f"/chamas/{chama.id}/expenses/{expense.id}",
+                metadata_json={"expense_id": expense.id, "status": ExpenseStatus.CANCELLED.value},
+            )
+
             db.session.commit()
 
             audit_log(

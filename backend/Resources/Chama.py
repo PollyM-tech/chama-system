@@ -5,6 +5,7 @@ from flask_restful import Resource
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from sqlalchemy import or_
 
+from Resources.Notification import create_notification
 from models import (
     db,
     User,
@@ -17,6 +18,7 @@ from models import (
     MembershipStatus,
     ChamaStatus,
     InviteStatus,
+    NotificationType,
 )
 
 
@@ -160,7 +162,10 @@ def require_chama_roles(current_user, chama_id, allowed_roles):
     chama, membership = result
 
     if membership.role not in allowed_roles:
-        return None, ({"message": "You do not have permission to perform this action in this chama."}, 403)
+        return None, (
+            {"message": "You do not have permission to perform this action in this chama."},
+            403,
+        )
 
     return (chama, membership), None
 
@@ -517,6 +522,19 @@ class ChamaInviteMemberResource(Resource):
             )
 
             db.session.add(invite)
+            db.session.flush()
+
+            if existing_user:
+                create_notification(
+                    user_id=existing_user.id,
+                    chama_id=chama.id,
+                    title="New chama invite",
+                    message=f"You have been invited to join {chama.name}.",
+                    notification_type=NotificationType.INVITE,
+                    action_url=f"/chamas/{chama.id}/invites",
+                    metadata_json={"invite_id": invite.id},
+                )
+
             db.session.commit()
 
             audit_log(
@@ -832,6 +850,7 @@ class ChamaRestoreMembershipResource(Resource):
             "membership": membership_dict(membership),
         }, 200
 
+
 class ChamaRemoveMembershipResource(Resource):
     @jwt_required()
     def patch(self, chama_id, membership_id):
@@ -882,19 +901,3 @@ class ChamaRemoveMembershipResource(Resource):
             "message": "Membership removed successfully.",
             "membership": membership_dict(membership),
         }, 200
-    
-    dividends = db.relationship(
-        "Dividend",
-        back_populates="chama",
-        lazy=True,
-        cascade="all, delete-orphan",
-        foreign_keys="Dividend.chama_id",
-    )
-
-    expenses = db.relationship(
-        "Expense",
-        back_populates="chama",
-        lazy=True,
-        cascade="all, delete-orphan",
-        foreign_keys="Expense.chama_id",
-    )

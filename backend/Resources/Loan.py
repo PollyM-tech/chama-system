@@ -5,6 +5,7 @@ from flask import request
 from flask_restful import Resource
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
+from Resources.Notification import create_notification
 from models import (
     db,
     User,
@@ -17,6 +18,7 @@ from models import (
     MembershipRole,
     MembershipStatus,
     LoanStatus,
+    NotificationType,
 )
 
 
@@ -295,6 +297,18 @@ class ChamaLoansResource(Resource):
             loan.calculate_total_due()
 
             db.session.add(loan)
+            db.session.flush()
+
+            create_notification(
+                user_id=current_user.id,
+                chama_id=chama.id,
+                title="Loan application submitted",
+                message=f"Your loan application in {chama.name} has been submitted successfully.",
+                notification_type=NotificationType.LOAN,
+                action_url=f"/chamas/{chama.id}/loans/{loan.id}",
+                metadata_json={"loan_id": loan.id, "status": LoanStatus.PENDING.value},
+            )
+
             db.session.commit()
 
             audit_log(
@@ -409,6 +423,16 @@ class LoanDetailResource(Resource):
         try:
             db.session.commit()
 
+            create_notification(
+                user_id=loan.borrower_user_id,
+                chama_id=chama.id,
+                title="Loan updated",
+                message=f"Your loan in {chama.name} has been updated.",
+                notification_type=NotificationType.LOAN,
+                action_url=f"/chamas/{chama.id}/loans/{loan.id}",
+                metadata_json={"loan_id": loan.id, "status": loan.status.value},
+            )
+
             audit_log(
                 action=AuditAction.LOAN_UPDATED,
                 actor_user_id=current_user.id,
@@ -450,6 +474,16 @@ class LoanDetailResource(Resource):
         borrower_user_id = loan.borrower_user_id
 
         try:
+            create_notification(
+                user_id=borrower_user_id,
+                chama_id=chama.id,
+                title="Loan deleted",
+                message=f"Your pending loan in {chama.name} was deleted.",
+                notification_type=NotificationType.LOAN,
+                action_url=f"/chamas/{chama.id}/loans",
+                metadata_json={"loan_id": loan_id, "status": "deleted"},
+            )
+
             db.session.delete(loan)
             db.session.commit()
 
@@ -499,6 +533,16 @@ class LoanApprovalResource(Resource):
         loan.rejection_reason = None
 
         try:
+            create_notification(
+                user_id=loan.borrower_user_id,
+                chama_id=chama.id,
+                title="Loan approved",
+                message=f"Your loan in {chama.name} has been approved.",
+                notification_type=NotificationType.LOAN,
+                action_url=f"/chamas/{chama.id}/loans/{loan.id}",
+                metadata_json={"loan_id": loan.id, "status": LoanStatus.APPROVED.value},
+            )
+
             db.session.commit()
 
             audit_log(
@@ -552,6 +596,20 @@ class LoanRejectionResource(Resource):
         loan.disbursed_at = None
 
         try:
+            create_notification(
+                user_id=loan.borrower_user_id,
+                chama_id=chama.id,
+                title="Loan rejected",
+                message=f"Your loan in {chama.name} was rejected.",
+                notification_type=NotificationType.LOAN,
+                action_url=f"/chamas/{chama.id}/loans/{loan.id}",
+                metadata_json={
+                    "loan_id": loan.id,
+                    "status": LoanStatus.REJECTED.value,
+                    "reason": reason,
+                },
+            )
+
             db.session.commit()
 
             audit_log(
@@ -607,6 +665,16 @@ class LoanDisbursementResource(Resource):
         loan.disbursed_at = datetime.utcnow()
 
         try:
+            create_notification(
+                user_id=loan.borrower_user_id,
+                chama_id=chama.id,
+                title="Loan disbursed",
+                message=f"Your loan in {chama.name} has been disbursed.",
+                notification_type=NotificationType.LOAN,
+                action_url=f"/chamas/{chama.id}/loans/{loan.id}",
+                metadata_json={"loan_id": loan.id, "status": LoanStatus.DISBURSED.value},
+            )
+
             db.session.commit()
 
             audit_log(
@@ -699,19 +767,34 @@ class LoanRepaymentsResource(Resource):
 
         try:
             repayment = LoanRepayment(
-            loan=loan,
-            amount=amount,
-            payment_date=payment_date,
-            recorded_by_user_id=current_user.id,
-            payment_method=payment_method,
-            reference_code=reference_code,
-            notes=notes,
+                loan=loan,
+                amount=amount,
+                payment_date=payment_date,
+                recorded_by_user_id=current_user.id,
+                payment_method=payment_method,
+                reference_code=reference_code,
+                notes=notes,
             )
 
             db.session.add(repayment)
             db.session.flush()
 
             loan.refresh_repayment_status()
+
+            create_notification(
+                user_id=loan.borrower_user_id,
+                chama_id=chama.id,
+                title="Loan repayment recorded",
+                message=f"A repayment has been recorded for your loan in {chama.name}.",
+                notification_type=NotificationType.LOAN,
+                action_url=f"/chamas/{chama.id}/loans/{loan.id}",
+                metadata_json={
+                    "loan_id": loan.id,
+                    "repayment_id": repayment.id,
+                    "status": loan.status.value,
+                },
+            )
+
             db.session.commit()
 
             audit_log(

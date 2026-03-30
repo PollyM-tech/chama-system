@@ -89,6 +89,13 @@ from Resources.Expense import (
     ExpenseSummaryResource,
 )
 
+from Resources.Notification import (
+    MyNotificationsResource,
+    NotificationDetailResource,
+    NotificationMarkReadResource,
+    NotificationMarkAllReadResource,
+)
+
 load_dotenv()
 
 app = Flask(__name__)
@@ -189,6 +196,13 @@ api.add_resource(ExpenseDetailResource, "/api/chamas/<int:chama_id>/expenses/<in
 api.add_resource(ExpenseApproveResource, "/api/chamas/<int:chama_id>/expenses/<int:expense_id>/approve")
 api.add_resource(ExpenseCancelResource, "/api/chamas/<int:chama_id>/expenses/<int:expense_id>/cancel")
 api.add_resource(ExpenseSummaryResource, "/api/chamas/<int:chama_id>/expenses/summary")
+
+
+#NOTIFICATION ROUTES
+api.add_resource(MyNotificationsResource, "/api/notifications")
+api.add_resource(NotificationDetailResource, "/api/notifications/<int:notification_id>")
+api.add_resource(NotificationMarkReadResource, "/api/notifications/<int:notification_id>/read")
+api.add_resource(NotificationMarkAllReadResource, "/api/notifications/read-all")
 
 @app.route("/")
 def home():

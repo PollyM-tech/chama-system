@@ -140,6 +140,19 @@ class ExpenseStatus(enum.Enum):
     APPROVED = "approved"
     CANCELLED = "cancelled"
 
+class NotificationType(enum.Enum):
+    INFO = "info"
+    SUCCESS = "success"
+    WARNING = "warning"
+    ERROR = "error"
+    INVITE = "invite"
+    CONTRIBUTION = "contribution"
+    LOAN = "loan"
+    POLL = "poll"
+    DIVIDEND = "dividend"
+    EXPENSE = "expense"
+    SYSTEM = "system"
+
 class AuditAction(enum.Enum):
     USER_CREATED = "user_created"
     USER_UPDATED = "user_updated"
@@ -199,6 +212,12 @@ class AuditAction(enum.Enum):
     EXPENSE_APPROVED = "expense_approved"
     EXPENSE_CANCELLED = "expense_cancelled"
     EXPENSE_DELETED = "expense_deleted"
+
+    NOTIFICATION_CREATED = "notification_created"
+    NOTIFICATION_READ = "notification_read"
+    NOTIFICATION_DELETED = "notification_deleted"
+
+    
 
 # =========================================================
 # MIXINS
@@ -417,6 +436,14 @@ class User(db.Model, TimestampMixin, UserLifecycleMixin):
     )
 
 
+    notifications = db.relationship(
+        "Notification",
+        back_populates="user",
+        lazy=True,
+        cascade="all, delete-orphan",
+        foreign_keys="Notification.user_id",
+    )
+
 
     def set_password(self, raw_password):
         self.password_hash = generate_password_hash(raw_password)
@@ -565,6 +592,14 @@ class Chama(db.Model, TimestampMixin):
         lazy=True,
         cascade="all, delete-orphan",
         foreign_keys="Expense.chama_id",
+    )
+
+    notifications = db.relationship(
+        "Notification",
+        back_populates="chama",
+        lazy=True,
+        cascade="all, delete-orphan",
+        foreign_keys="Notification.chama_id",
     )
 
     def active_memberships_query(self):
@@ -1379,3 +1414,67 @@ class Expense(db.Model, TimestampMixin):
 
     def __repr__(self):
         return f"<Expense {self.id} chama={self.chama_id} amount={self.amount} status={self.status.value}>"
+    
+
+class Notification(db.Model, TimestampMixin):
+    __tablename__ = "notifications"
+    __table_args__ = (
+        Index("ix_notification_user_read_created", "user_id", "is_read", "created_at"),
+        Index("ix_notification_chama_type", "chama_id", "type"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    chama_id = db.Column(db.Integer, db.ForeignKey("chamas.id"), nullable=True, index=True)
+
+    title = db.Column(db.String(200), nullable=False)
+    message = db.Column(db.Text, nullable=False)
+
+    type = db.Column(
+        db.Enum(NotificationType),
+        default=NotificationType.INFO,
+        nullable=False,
+        index=True,
+    )
+
+    is_read = db.Column(db.Boolean, default=False, nullable=False, index=True)
+    read_at = db.Column(db.DateTime, nullable=True)
+
+    action_url = db.Column(db.String(255), nullable=True)
+    metadata_json = db.Column(db.JSON, nullable=True)
+
+    user = db.relationship(
+        "User",
+        back_populates="notifications",
+        foreign_keys=[user_id],
+    )
+
+    chama = db.relationship(
+        "Chama",
+        back_populates="notifications",
+        foreign_keys=[chama_id],
+    )
+
+    def mark_as_read(self):
+        self.is_read = True
+        self.read_at = datetime.utcnow()
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "chama_id": self.chama_id,
+            "title": self.title,
+            "message": self.message,
+            "type": self.type.value if self.type else None,
+            "is_read": self.is_read,
+            "read_at": self.read_at.isoformat() if self.read_at else None,
+            "action_url": self.action_url,
+            "metadata_json": self.metadata_json,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+    def __repr__(self):
+        return f"<Notification {self.id} user={self.user_id} type={self.type.value}>"
